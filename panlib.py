@@ -112,14 +112,36 @@ def _worst(ds):
     return "bad" if "bad" in ds else ("unsure" if "unsure" in ds else "good")
 
 # Confidence bands, ONE source of truth. Each signal -> bad / good / unsure(defer to judge).
-# (lo, hi): score >= hi is confident-bad, score <= lo is confident-good, between is unsure.
-# The detectors AND the `funnel` command both read these, so the reported funnel can't drift
-# from what the detectors actually do.
-BANDS = {"black": (0.1, 0.5), "blur": (0.5, 0.9), "static": (0.002, 0.01),
-         "nohand": (0.3, 0.8), "phone": (0.35, 0.6)}
-def band(v, key, low_is_bad=False):
-    lo, hi = BANDS[key]
-    if low_is_bad:  # static motion: a LOW score is the bad one
+# (lo, hi): score past hi is confident-bad, score short of lo is confident-good, between is unsure.
+# DEFAULT_BANDS are the shipped values; the live BANDS overlay them from $LADDER_DATA/bands.json
+# (hand-tuned via the /tune page). Detectors, funnel, and verdicts all read the live BANDS, so the
+# whole system honors a tuning with no code change.
+DEFAULT_BANDS = {"black": (0.1, 0.5), "blur": (0.5, 0.9), "static": (0.002, 0.01),
+                 "nohand": (0.3, 0.8), "phone": (0.35, 0.6),
+                 "looking_away": (0.3, 0.7), "no_workspace": (0.3, 0.7)}
+LOW_IS_BAD = {"static"}        # a LOW score is the bad one (motion = frozen frame)
+BANDS_PATH = f"{SSD}/bands.json"
+def load_bands():
+    b = {k: tuple(v) for k, v in DEFAULT_BANDS.items()}
+    if os.path.exists(BANDS_PATH):
+        try:
+            for k, v in json.load(open(BANDS_PATH)).items():
+                if k in b: b[k] = (float(v[0]), float(v[1]))
+        except Exception:
+            pass
+    return b
+BANDS = load_bands()
+def save_bands(d):
+    cur = {k: list(BANDS[k]) for k in DEFAULT_BANDS}
+    for k, v in d.items():
+        if k in cur: cur[k] = [float(v[0]), float(v[1])]
+    json.dump(cur, open(BANDS_PATH, "w"), indent=1)
+    global BANDS; BANDS = load_bands()
+    return cur
+def band(v, key, low_is_bad=None, bands=None):
+    lo, hi = (bands or BANDS)[key]
+    if low_is_bad is None: low_is_bad = key in LOW_IS_BAD
+    if low_is_bad:
         return "bad" if v < lo else ("good" if v > hi else "unsure")
     return "bad" if v > hi else ("good" if v < lo else "unsure")
 
@@ -268,7 +290,7 @@ def _semantic(path_rel):
     decs = {}
     for g in ("looking_away", "no_workspace"):
         f = c.get(g, 0) / n
-        decs[g] = "bad" if f > 0.7 else ("good" if f < 0.3 else "unsure")
+        decs[g] = band(f, g)
     decision = _worst(list(decs.values()))
     reasons = [g for g, d in decs.items() if d != "good"]
     hits = [{"reason": win[i], "t": round(times[i], 1)} for i in range(n) if win[i] in reasons]
@@ -324,31 +346,38 @@ def assemble_verdict(con, path):
         if row:
             vs[s] = json.loads(row[0])
     cheap = {s: v for s, v in vs.items() if s != "vlm"}
-    bad_at = [s for s, v in cheap.items() if v.get("decision") == "bad"]
+    bad_at = [s for s, v in cheap.items() if decide(s, v) == "bad"]       # re-derived under live bands
     if bad_at:
         return {"verdict": "FAIL", "by": bad_at[0]}                       # a layer was sure
-    if any(v.get("decision") == "unsure" for v in cheap.values()):
+    if any(decide(s, v) == "unsure" for s, v in cheap.items()):
         if "vlm" in vs:
             return {"verdict": vs["vlm"].get("verdict", "PASS"), "by": "judge"}
         return {"verdict": "BDLN", "by": "pending-judge"}                 # unsure, awaiting the judge
     return {"verdict": "PASS", "by": "auto-clean"}                        # confident-good all the way up
 
 CHEAP_ORDER = ["meta", "cheap_cv", "geometry", "objects", "semantic"]
-def _clip_decision(stage, v):
-    """bad/good/unsure for one stored result. Prefers the recorded `decision`; for legacy rows
-    (pre-cascade, no `decision`) replays the SAME bands over the stored scores."""
-    if "decision" in v:
-        return v["decision"]
-    if stage == "cheap_cv":
-        return _worst([band(v.get("black_frac", 0), "black"), band(v.get("blur_frac", 0), "blur"),
-                       band(v.get("med_motion", 1), "static", low_is_bad=True)])
-    if stage == "geometry": return band(v.get("nohand_frac", 0), "nohand")
-    if stage == "objects":  return band(v.get("phone_conf", 0), "phone")
-    return "bad" if v.get("bad") else "good"   # meta, semantic-legacy: binary
+def decide(stage, v, bands=None):
+    """bad/good/unsure for one stored result, re-derived from the raw score under `bands` (live BANDS
+    by default). This is what makes tuning free: change a band, decisions change with no re-run. Falls
+    back to the stored decision/bad only when no raw score is present (meta, legacy semantic)."""
+    if stage == "cheap_cv" and "blur_frac" in v:
+        return _worst([band(v.get("black_frac", 0), "black", bands=bands),
+                       band(v.get("blur_frac", 0), "blur", bands=bands),
+                       band(v.get("med_motion", 1), "static", bands=bands)])
+    if stage == "geometry" and "nohand_frac" in v:
+        return band(v.get("nohand_frac", 0), "nohand", bands=bands)
+    if stage == "objects" and "phone_conf" in v:
+        return band(v.get("phone_conf", 0), "phone", bands=bands)
+    if stage == "semantic" and "frac" in v:
+        fr = v["frac"]
+        return _worst([band(fr.get("looking_away", 0), "looking_away", bands=bands),
+                       band(fr.get("no_workspace", 0), "no_workspace", bands=bands)])
+    if "decision" in v: return v["decision"]
+    return "bad" if v.get("bad") else "good"
 
-def funnel(con):
-    """The measured cascade outcome over every catalogued clip: where each clip exits the cheap
-    layers (FAIL / deferred-to-judge / cleared). Reproduces the README table from any triage.db."""
+def load_scores(con):
+    """Pull every clip's per-stage stored verdict once (active version per stage = the full run). The
+    in-memory bundle the tuner re-scores against, so dragging a band is a pure recompute, no DB churn."""
     ver = {}
     for s in CHEAP_ORDER:  # pick the version that actually ran in full (most rows)
         r = con.execute("SELECT version,COUNT(*) c FROM results WHERE stage=? GROUP BY version "
@@ -357,19 +386,29 @@ def funnel(con):
     data = {s: {p: json.loads(j) for p, j in
                 con.execute("SELECT path,verdict_json FROM results WHERE stage=? AND version=?", (s, vv))}
             for s, vv in ver.items()}
+    paths = [p for (p,) in con.execute("SELECT path FROM videos")]
+    return {"data": data, "paths": paths, "versions": ver}
+
+def funnel_over(rows, bands=None):
+    """Pure aggregator: walk each clip through the cheap layers under `bands`, count where it exits."""
+    data, paths = rows["data"], rows["paths"]
     fail = defer = clear = 0; by_layer = {}
-    for (p,) in con.execute("SELECT path FROM videos"):
+    for p in paths:
         outcome = None
         for s in CHEAP_ORDER:
             v = data.get(s, {}).get(p)
             if v is None: continue
-            d = _clip_decision(s, v)
+            d = decide(s, v, bands=bands)
             if d == "bad":    fail += 1;  by_layer[f"{s}:FAIL"]  = by_layer.get(f"{s}:FAIL", 0) + 1;  outcome = 1; break
             if d == "unsure": defer += 1; by_layer[f"{s}:defer"] = by_layer.get(f"{s}:defer", 0) + 1; outcome = 1; break
         if outcome is None: clear += 1
     tot = fail + defer + clear
     return {"total": tot, "fail": fail, "defer": defer, "clear": clear,
-            "by_layer": dict(sorted(by_layer.items())), "versions": ver}
+            "by_layer": dict(sorted(by_layer.items())), "versions": rows["versions"]}
+
+def funnel(con, bands=None):
+    """The measured cascade outcome over every catalogued clip (FAIL / deferred / cleared)."""
+    return funnel_over(load_scores(con), bands)
 
 # Registry. version bumps when a detector/threshold changes -> new result rows, old kept.
 # CASCADE gates: a cheap level runs only on clips the level below marked confident-GOOD; the judge

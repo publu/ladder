@@ -25,3 +25,6 @@ venv/
 *.pt
 *.onnx
 .goalkeeper/
+
+# tuned bands live with the data, not the repo
+bands.json

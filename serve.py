@@ -124,6 +124,73 @@ def thumb(h):
     if frame is None: return b""
     data = cv2.imencode(".jpg", frame)[1].tobytes(); open(jpg, "wb").write(data); return data
 
+# ---- tuner: hand-tune the cascade bands live over stored scores (no re-decode, no model re-run) ----
+# (key, stage, score accessor, slider max). semantic needs the cascade 'frac' field; legacy rows skip.
+SIGNALS = [("black", "cheap_cv", lambda v: v.get("black_frac"), 1.0),
+           ("blur", "cheap_cv", lambda v: v.get("blur_frac"), 1.0),
+           ("static", "cheap_cv", lambda v: v.get("med_motion"), 0.05),
+           ("nohand", "geometry", lambda v: v.get("nohand_frac"), 1.0),
+           ("phone", "objects", lambda v: v.get("phone_conf"), 1.0),
+           ("looking_away", "semantic", lambda v: (v.get("frac") or {}).get("looking_away"), 1.0),
+           ("no_workspace", "semantic", lambda v: (v.get("frac") or {}).get("no_workspace"), 1.0)]
+_TUNE = {}
+def _tune_cache():
+    if not _TUNE:
+        con = P.db()
+        _TUNE["rows"] = P.load_scores(con)
+        _TUNE["judge"] = {p: ("bad" if (j.get("bad") or j.get("verdict") == "FAIL") else "good")
+                          for p, j in P.verdicts(con, "vlm").items()}
+    return _TUNE
+
+def _hist(vals, jbad, jgood, mx, nbins=40):
+    b = [0]*nbins; hb = [0]*nbins; hg = [0]*nbins
+    bi = lambda x: min(nbins-1, max(0, int(x/mx*nbins))) if mx else 0
+    for x in vals:  b[bi(x)] += 1
+    for x in jbad:  hb[bi(x)] += 1
+    for x in jgood: hg[bi(x)] += 1
+    return {"bins": b, "jbad": hb, "jgood": hg, "max_x": mx, "nbins": nbins}
+
+def tune_init():
+    t = _tune_cache(); data = t["rows"]["data"]; judge = t["judge"]; out = {"signals": []}
+    for key, stage, acc, mx in SIGNALS:
+        vals = []; jb = []; jg = []
+        for p, v in data.get(stage, {}).items():
+            x = acc(v)
+            if x is None: continue
+            vals.append(x); lab = judge.get(p)
+            if lab == "bad": jb.append(x)
+            elif lab == "good": jg.append(x)
+        out["signals"].append({"key": key, "stage": stage, "n": len(vals), "low_is_bad": key in P.LOW_IS_BAD,
+                               "hist": _hist(vals, jb, jg, mx), "band": list(P.BANDS[key]),
+                               "default": list(P.DEFAULT_BANDS[key])})
+    return out
+
+def _bandsd(body):
+    b = {k: tuple(P.BANDS[k]) for k in P.DEFAULT_BANDS}
+    for k, v in (body.get("bands") or {}).items():
+        if k in b: b[k] = (float(v[0]), float(v[1]))
+    return b
+
+def _cascade_decide(data, p, bands):
+    for s in P.CHEAP_ORDER:
+        v = data.get(s, {}).get(p)
+        if v is None: continue
+        d = P.decide(s, v, bands=bands)
+        if d != "good": return d   # bad or unsure (deferred)
+    return "good"
+
+def tune_preview(bands):
+    t = _tune_cache(); rows = t["rows"]; judge = t["judge"]; data = rows["data"]
+    f = P.funnel_over(rows, bands)
+    agree = conf = 0   # agreement vs the judge on clips the cascade DECIDES (bad/good, not deferred)
+    for p, lab in judge.items():
+        d = _cascade_decide(data, p, bands)
+        if d in ("bad", "good"):
+            conf += 1; agree += (d == lab)
+    f["judge_n"] = len(judge); f["decided_judged"] = conf
+    f["agreement"] = round(100*agree/conf, 1) if conf else None
+    return f
+
 class H(http.server.SimpleHTTPRequestHandler):
     def _send(self, body, ctype="application/json", code=200):
         if isinstance(body, str): body = body.encode()
@@ -135,11 +202,21 @@ class H(http.server.SimpleHTTPRequestHandler):
         u = urlparse(self.path); q = parse_qs(u.query)
         g = lambda k: (q.get(k) or [None])[0]
         if u.path == "/": return self._send(SPA, "text/html")
+        if u.path == "/tune": return self._send(TUNE, "text/html")
+        if u.path == "/api/tune": return self._send(json.dumps(tune_init()))
         if u.path == "/api/stats": return self._send(json.dumps(stats()))
         if u.path == "/api/episodes": return self._send(json.dumps(episodes(g("emb"), g("verdict"))))
         if u.path == "/api/episode": return self._send(json.dumps(episode(g("h"))))
         if u.path.startswith("/thumb/"): return self._send(thumb(u.path[7:]), "image/jpeg")
         if u.path.startswith("/vid/"): return self._vid(f"{P.SSD}/{unquote(u.path[5:])}")
+        return self._send("not found", "text/plain", 404)
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        n = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(n) or "{}")
+        if u.path == "/api/tune/preview": return self._send(json.dumps(tune_preview(_bandsd(body))))
+        if u.path == "/api/tune/save":    return self._send(json.dumps({"saved": P.save_bands(_bandsd(body))}))
         return self._send("not found", "text/plain", 404)
 
     def _vid(self, path):
@@ -301,6 +378,109 @@ function tog(){let vp=document.getElementById('vp');if(vp.paused){vp.play();pp.t
 document.getElementById('tl').onclick=e=>{let r=e.currentTarget.getBoundingClientRect();jump(DUR*(e.clientX-r.left)/r.width)};
 document.getElementById('vp').ontimeupdate=function(){document.getElementById('play').style.left=(100*this.currentTime/DUR)+'%';
   document.getElementById('tc').textContent=this.currentTime.toFixed(1)+' / '+DUR.toFixed(1)+'s';};
+boot();
+</script>"""
+
+TUNE = r"""<!doctype html><meta charset=utf-8><title>ladder · tune</title>
+<style>
+:root{--bg:#0b0f0c;--fg:#bfe3c8;--dim:#5f7a66;--ln:#1c2a20;--g:#3fb950;--a:#d9a441;--r:#e0566b}
+*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);font:13px/1.5 ui-monospace,Menlo,monospace;margin:0;padding:18px}
+a{color:var(--dim)}h1{font-size:15px;margin:0 0 2px}.sub{color:var(--dim);margin-bottom:14px}
+.wrap{display:flex;gap:22px;align-items:flex-start}.col{flex:1}.side{width:300px;position:sticky;top:18px}
+.sig{border:1px solid var(--ln);border-radius:6px;padding:10px 12px;margin-bottom:12px}
+.sig h3{margin:0;font-size:13px}.sig .meta{color:var(--dim);font-size:11px;margin-bottom:6px}
+canvas{display:block;width:100%;height:74px;background:#070a08;border:1px solid var(--ln);border-radius:3px}
+.sliders{display:flex;gap:10px;margin-top:7px}.sliders label{flex:1;color:var(--dim);font-size:11px}
+input[type=range]{width:100%;accent-color:var(--fg)}
+.cnt{font-size:11px;margin-top:5px}.cnt b{font-weight:600}.gc{color:var(--g)}.uc{color:var(--a)}.bc{color:var(--r)}
+.panel{border:1px solid var(--ln);border-radius:6px;padding:14px}
+.bar{height:13px;border-radius:2px;margin:3px 0;background:#111}
+.big{font-size:22px;font-weight:600}.row{display:flex;justify-content:space-between;margin:4px 0}
+button{font:inherit;background:#11201a;color:var(--fg);border:1px solid var(--ln);border-radius:4px;padding:7px 12px;cursor:pointer;margin-right:8px}
+button:hover{border-color:var(--g)}.note{color:var(--dim);font-size:11px;margin-top:10px}
+</style>
+<h1>ladder · tune the bands</h1>
+<div class=sub>drag the GOOD / UNSURE / BAD splits per signal. the funnel and judge-agreement update live from
+stored scores, with no re-decode. <a href="/">&larr; viewer</a></div>
+<div class=wrap>
+  <div class=col id=sigs></div>
+  <div class=side>
+    <div class=panel>
+      <div class=row><span>judge sees (deferred)</span><span class=big id=defer>—</span></div>
+      <div class=bar id=bd></div>
+      <div class=row><span class=bc>FAIL</span><span id=fail>—</span></div>
+      <div class=row><span class=gc>cleared PASS</span><span id=clear>—</span></div>
+      <div class=row><span>resolved by cheap layers</span><span id=res>—</span></div>
+      <hr style=border-color:var(--ln)>
+      <div class=row><span>judge agreement</span><span class=big id=agree>—</span></div>
+      <div class=note id=agnote></div>
+      <div style=margin-top:14px>
+        <button onclick=save()>save bands</button><button onclick=reset()>reset</button>
+        <div class=note id=msg></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+let S=[];   // signals
+const $=id=>document.getElementById(id), fmt=n=>n==null?'—':n.toLocaleString();
+function region(s,x){ // 'g'|'u'|'b' for a score x at this signal's current band
+  if(s.lowbad) return x<s.lo?'b':(x>s.hi?'g':'u');
+  return x>s.hi?'b':(x<s.lo?'g':'u'); }
+const RC={g:'#3fb950',u:'#d9a441',b:'#e0566b'};
+function draw(s){
+  const c=s.cv,ctx=c.getContext('2d'),W=c.width,H=c.height,N=s.h.nbins,bw=W/N,mx=s.h.max_x;
+  ctx.clearRect(0,0,W,H);const mb=Math.max(1,...s.h.bins);
+  for(let i=0;i<N;i++){const x=(i+0.5)/N*mx,h=s.h.bins[i]/mb*(H-14);
+    ctx.fillStyle=RC[region(s,x)];ctx.globalAlpha=.55;ctx.fillRect(i*bw,H-14-h,Math.max(1,bw-1),h);}
+  ctx.globalAlpha=1;
+  for(let i=0;i<N;i++){const cx=(i+0.5)/N*W; // judge ticks: bad up top, good along bottom
+    if(s.h.jbad[i]){ctx.fillStyle=RC.b;ctx.fillRect(cx-1,0,2,Math.min(12,2+s.h.jbad[i]*3));}
+    if(s.h.jgood[i]){ctx.fillStyle=RC.g;ctx.fillRect(cx-1,H-3,2,3);}}
+  for(const v of [s.lo,s.hi]){const x=v/mx*W;ctx.strokeStyle='#cfe';ctx.globalAlpha=.8;
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();ctx.globalAlpha=1;}
+  let g=0,u=0,b=0;for(let i=0;i<N;i++){const x=(i+0.5)/N*mx,r=region(s,x);
+    if(r=='g')g+=s.h.bins[i];else if(r=='u')u+=s.h.bins[i];else b+=s.h.bins[i];}
+  s.el.querySelector('.cnt').innerHTML=`<span class=gc>good ${fmt(g)}</span> · `+
+    `<span class=uc>unsure ${fmt(u)}</span> · <span class=bc>bad ${fmt(b)}</span>`+
+    `<span style=color:var(--dim)> · lo ${s.lo.toFixed(3)} hi ${s.hi.toFixed(3)}</span>`;
+}
+let pv=null;
+function schedule(){clearTimeout(pv);pv=setTimeout(preview,140);}
+async function preview(){
+  const bands={};S.forEach(s=>bands[s.key]=[s.lo,s.hi]);
+  const r=await fetch('/api/tune/preview',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({bands})}).then(x=>x.json());
+  const t=r.total||1;$('defer').textContent=fmt(r.defer)+' ('+(100*r.defer/t).toFixed(1)+'%)';
+  $('bd').style.background=`linear-gradient(90deg,var(--a) ${100*r.defer/t}%,#111 0)`;
+  $('fail').textContent=fmt(r.fail)+' ('+(100*r.fail/t).toFixed(1)+'%)';
+  $('clear').textContent=fmt(r.clear)+' ('+(100*r.clear/t).toFixed(1)+'%)';
+  $('res').textContent=(100*(r.fail+r.clear)/t).toFixed(1)+'%';
+  $('agree').textContent=r.agreement==null?'n/a':r.agreement+'%';
+  $('agnote').textContent=r.decided_judged?`on ${r.decided_judged} of ${r.judge_n} judged clips the cascade decided`:'no judged clips decided yet';
+}
+function mkSig(s){
+  const mx=s.hist.max_x,step=mx/200,el=document.createElement('div');el.className='sig';
+  el.innerHTML=`<h3>${s.key} <span style=color:var(--dim)>· ${s.stage}${s.low_is_bad?' · low=bad':''}</span></h3>
+    <div class=meta>${fmt(s.n)} clips scored</div><canvas width=380 height=74></canvas>
+    <div class=sliders><label>lo (good ↔ unsure)<input type=range min=0 max=${mx} step=${step} class=lo></label>
+    <label>hi (unsure ↔ bad)<input type=range min=0 max=${mx} step=${step} class=hi></label></div>
+    <div class=cnt></div>`;
+  $('sigs').appendChild(el);
+  const o={key:s.key,h:s.hist,lo:s.band[0],hi:s.band[1],def:s.default,lowbad:s.low_is_bad,
+           cv:el.querySelector('canvas'),el,loE:el.querySelector('.lo'),hiE:el.querySelector('.hi')};
+  o.loE.value=o.lo;o.hiE.value=o.hi;
+  o.loE.oninput=()=>{o.lo=Math.min(+o.loE.value,o.hi);o.loE.value=o.lo;draw(o);schedule();};
+  o.hiE.oninput=()=>{o.hi=Math.max(+o.hiE.value,o.lo);o.hiE.value=o.hi;draw(o);schedule();};
+  draw(o);return o;
+}
+async function save(){
+  const bands={};S.forEach(s=>bands[s.key]=[s.lo,s.hi]);
+  await fetch('/api/tune/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bands})});
+  $('msg').textContent='saved to bands.json @ '+new Date().toLocaleTimeString();
+}
+function reset(){S.forEach(s=>{s.lo=s.def[0];s.hi=s.def[1];s.loE.value=s.lo;s.hiE.value=s.hi;draw(s);});schedule();$('msg').textContent='reset to defaults (not saved)';}
+async function boot(){const r=await fetch('/api/tune').then(x=>x.json());S=r.signals.map(mkSig);preview();}
 boot();
 </script>"""
 
