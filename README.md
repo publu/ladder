@@ -21,21 +21,27 @@ the cascade pays it a single time. The run is resumable, versioned, and watchabl
 
 ## The funnel, measured
 This table is the output of `ladder funnel --md` on the EgoVerse preview corpus. Run it on your own
-`triage.db` to reproduce the same breakdown.
+`triage.db` to reproduce it. Each row shows where that layer sends clips: decided FAIL on its own, or
+deferred up to the judge.
 
-On this corpus (132,576 clips):
+On this corpus (132,576 clips), where each layer sends clips:
 
-| | clips | share |
-|---|---|---|
-| **decided FAIL** by a cheap layer (mostly missing hands or looking away) | 44,209 | 33.3% |
-| **cleared PASS** through the cheap layers, never judged | 62,602 | 47.2% |
-| **deferred to the judge** (genuinely uncertain) | 25,765 | 19.4% |
+| layer | catches | decided FAIL | deferred to judge |
+|---|---|---|---|
+| **L0 meta** | corrupt / empty | 13 | 0 |
+| **L1 cheap_cv** | black / blur / frozen | 373 | 439 |
+| **L2 geometry** | no hands in frame | 20,836 | 23,780 |
+| **L3 objects** | phone in hand | 564 | 1,546 |
+| **L3 semantic** | looking away (SigLIP, least calibrated) | 22,485 | 0 |
+| **cleared PASS** (good through every layer) | | 62,540 (47.2%) | |
+| **L4 judge** | full rubric | sees only the deferred | **25,765 (19.4%)** |
 
-The cheap layers resolve **~80% of the corpus on their own**. The judge sees only the ~1-in-5 they
-cannot call, which is **24% fewer judge calls than judging everything flagged**, before any calibration.
-On the clips we judged, the cascade's confident calls agreed with the judge **84% of the time**. The
-deferred band is dominated by one signal: hand visibility. Calibrating its thresholds against judge
-labels (`eval.py`) is where the judge bill drops further.
+The cheap layers resolve **~80% of the corpus on their own**, so the judge sees only the ~1-in-5 they
+cannot call. The two big rejects are geometry (no hands visible in >80% of frames, a hard signal for
+manipulation data) and semantic (SigLIP `looking_away`, the noisiest layer and the next calibration
+target). On the clips we judged, the cascade's confident calls agreed with the judge **84% of the
+time**. Tightening a layer's thresholds re-scores from cached frames instead of the corpus and lands as
+a new version beside the old one, so `eval.py` can show whether the change helped.
 
 Each cheap layer runs only on what the layer below cleared as GOOD, and returns **bad / good / unsure**
 (two thresholds bracketing an uncertainty band). Confident-bad fails and stops. Confident-good flows

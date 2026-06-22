@@ -91,24 +91,35 @@ def cmd_status(con, a):
                               (name, ver)).fetchone()[0]
             print(f"{name:10s} {ver:8s} {done:8d} {100*done//max(tot,1):4d}% {bad:7d}")
 
+# what each cheap layer catches (for the per-layer funnel display)
+_CATCH = {"meta": ("L0", "corrupt / empty"), "cheap_cv": ("L1", "black / blur / frozen"),
+          "geometry": ("L2", "no hands in frame"), "objects": ("L3", "phone in hand"),
+          "semantic": ("L3", "looking away (SigLIP, least calibrated)")}
 def cmd_funnel(con, a):
-    """Print the measured cascade funnel: where every clip exits the cheap layers. --md emits the
+    """Print the measured cascade funnel PER LAYER: where each layer sends clips (decided-FAIL vs
+    deferred-to-judge). Answers 'fail where?' from stored outcomes, no recompute. --md emits the
     README table. Reproducible from any triage.db, so the numbers are checkable, not asserted."""
     f = P.funnel(con); t = max(f["total"], 1)
     pct = lambda n: f"{100*n/t:.1f}%"
+    by = f["by_layer"]
+    rows = [(P.CHEAP_ORDER.index(s),) + _CATCH[s] + (s, by.get(f"{s}:FAIL", 0), by.get(f"{s}:defer", 0))
+            for s in _CATCH]
+    rows.sort()
     if getattr(a, "md", False):
-        print(f"On this corpus ({f['total']:,} clips):\n")
-        print("| | clips | share |\n|---|---|---|")
-        print(f"| **decided FAIL** by a cheap layer | {f['fail']:,} | {pct(f['fail'])} |")
-        print(f"| **cleared PASS** through the cheap layers, never judged | {f['clear']:,} | {pct(f['clear'])} |")
-        print(f"| **deferred to the judge** (genuinely uncertain) | {f['defer']:,} | {pct(f['defer'])} |")
+        print(f"On this corpus ({f['total']:,} clips), where each layer sends clips:\n")
+        print("| layer | catches | decided FAIL | deferred to judge |\n|---|---|---|---|")
+        for _, lvl, catch, s, nf, nd in rows:
+            print(f"| **{lvl} {s}** | {catch} | {nf:,} | {nd:,} |")
+        print(f"| **cleared PASS** (good through every layer) | | {f['clear']:,} ({pct(f['clear'])}) | |")
+        print(f"| **L4 judge** | full rubric | sees only the deferred | **{f['defer']:,} ({pct(f['defer'])})** |")
         return
     print(f"corpus: {f['total']:,} clips    (stage versions: {f['versions']})")
-    print(f"  decided FAIL by a cheap layer : {f['fail']:>8,}  {pct(f['fail'])}")
-    print(f"  cleared PASS (never judged)   : {f['clear']:>8,}  {pct(f['clear'])}")
-    print(f"  deferred to the judge         : {f['defer']:>8,}  {pct(f['defer'])}")
-    print(f"  cheap layers resolve on their own: {pct(f['fail']+f['clear'])}")
-    print("  where clips exit:", f["by_layer"])
+    print(f"  {'layer':16s} {'catches':36s} {'FAIL':>9s} {'->judge':>9s}")
+    for _, lvl, catch, s, nf, nd in rows:
+        print(f"  {lvl+' '+s:16s} {catch:36s} {nf:>9,} {nd:>9,}")
+    print(f"  {'cleared PASS':16s} {'good through every layer':36s} {f['clear']:>9,}")
+    print(f"\n  cheap layers resolve {pct(f['fail']+f['clear'])} on their own; "
+          f"judge sees only {f['defer']:,} ({pct(f['defer'])})")
 
 def cmd_bad(con, a):
     """Final list with the VLM (Claude) as authority: cheap stages PROPOSE suspects, Claude
