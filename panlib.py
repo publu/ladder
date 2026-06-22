@@ -111,6 +111,18 @@ def get_frames(path_rel, w=160, h=120):
 def _worst(ds):
     return "bad" if "bad" in ds else ("unsure" if "unsure" in ds else "good")
 
+# Confidence bands, ONE source of truth. Each signal -> bad / good / unsure(defer to judge).
+# (lo, hi): score >= hi is confident-bad, score <= lo is confident-good, between is unsure.
+# The detectors AND the `funnel` command both read these, so the reported funnel can't drift
+# from what the detectors actually do.
+BANDS = {"black": (0.1, 0.5), "blur": (0.5, 0.9), "static": (0.002, 0.01),
+         "nohand": (0.3, 0.8), "phone": (0.35, 0.6)}
+def band(v, key, low_is_bad=False):
+    lo, hi = BANDS[key]
+    if low_is_bad:  # static motion: a LOW score is the bad one
+        return "bad" if v < lo else ("good" if v > hi else "unsure")
+    return "bad" if v > hi else ("good" if v < lo else "unsure")
+
 # ----------------------------------------------------------------- stages (wrap existing detectors)
 # Each stage fn: (path_rel) -> verdict dict {bad: bool, reasons: [...], ...}. Lazy-import heavy deps
 # INSIDE the fn so importing panlib stays light and only the running stage loads torch/mediapipe.
@@ -143,9 +155,9 @@ def _cheap_cv(path_rel):
            if len(g) > 1 else np.array([1.0]))
     bf, blf, mm = float((luma < 16).mean()), float((blur < 100).mean()), float(np.median(mot))
     # per-signal decision: confident bad / confident good / unsure-middle (defers to judge)
-    dblack  = "bad" if bf > 0.5  else ("good" if bf < 0.1  else "unsure")
-    dblur   = "bad" if blf > 0.9 else ("good" if blf < 0.5 else "unsure")
-    dstatic = "bad" if mm < 0.002 else ("good" if mm > 0.01 else "unsure")
+    dblack  = band(bf, "black")
+    dblur   = band(blf, "blur")
+    dstatic = band(mm, "static", low_is_bad=True)
     decision = _worst([dblack, dblur, dstatic])
     reasons = [r for r, d in (("black", dblack), ("blur", dblur), ("static", dstatic)) if d != "good"]
     hits = []  # WHERE each flag fired (in-video seconds)
@@ -188,7 +200,7 @@ def _geometry(path_rel):
         if not _M["hands"].detect(img).hand_landmarks:
             nohit.append(round(t, 1))
     frac = len(nohit) / len(frames)
-    decision = "bad" if frac > 0.8 else ("good" if frac < 0.3 else "unsure")
+    decision = band(frac, "nohand")
     return {"decision": decision, "bad": decision != "good", "nohand_frac": round(frac, 2),
             "reasons": (["missing_hands"] if decision != "good" else []),
             "hits": [{"reason": "missing_hands", "t": t} for t in nohit[:30]] if decision != "good" else []}
@@ -216,7 +228,7 @@ def _objects(path_rel):
                 c = float(f[:, 4].max()); best = max(best, c)
                 hits.append({"reason": "phone", "t": round(times[i], 1), "conf": round(c, 2)})
     # phone is FP-prone (folded garments read as phones), so high bar for confident-bad; middle -> judge
-    decision = "bad" if best > 0.6 else ("good" if best < 0.35 else "unsure")
+    decision = band(best, "phone")
     return {"decision": decision, "bad": decision != "good", "reasons": (["phone"] if decision != "good" else []),
             "phone_conf": round(best, 2), "hits": hits if decision != "good" else []}
 
@@ -320,6 +332,44 @@ def assemble_verdict(con, path):
             return {"verdict": vs["vlm"].get("verdict", "PASS"), "by": "judge"}
         return {"verdict": "BDLN", "by": "pending-judge"}                 # unsure, awaiting the judge
     return {"verdict": "PASS", "by": "auto-clean"}                        # confident-good all the way up
+
+CHEAP_ORDER = ["meta", "cheap_cv", "geometry", "objects", "semantic"]
+def _clip_decision(stage, v):
+    """bad/good/unsure for one stored result. Prefers the recorded `decision`; for legacy rows
+    (pre-cascade, no `decision`) replays the SAME bands over the stored scores."""
+    if "decision" in v:
+        return v["decision"]
+    if stage == "cheap_cv":
+        return _worst([band(v.get("black_frac", 0), "black"), band(v.get("blur_frac", 0), "blur"),
+                       band(v.get("med_motion", 1), "static", low_is_bad=True)])
+    if stage == "geometry": return band(v.get("nohand_frac", 0), "nohand")
+    if stage == "objects":  return band(v.get("phone_conf", 0), "phone")
+    return "bad" if v.get("bad") else "good"   # meta, semantic-legacy: binary
+
+def funnel(con):
+    """The measured cascade outcome over every catalogued clip: where each clip exits the cheap
+    layers (FAIL / deferred-to-judge / cleared). Reproduces the README table from any triage.db."""
+    ver = {}
+    for s in CHEAP_ORDER:  # pick the version that actually ran in full (most rows)
+        r = con.execute("SELECT version,COUNT(*) c FROM results WHERE stage=? GROUP BY version "
+                        "ORDER BY c DESC LIMIT 1", (s,)).fetchone()
+        if r: ver[s] = r[0]
+    data = {s: {p: json.loads(j) for p, j in
+                con.execute("SELECT path,verdict_json FROM results WHERE stage=? AND version=?", (s, vv))}
+            for s, vv in ver.items()}
+    fail = defer = clear = 0; by_layer = {}
+    for (p,) in con.execute("SELECT path FROM videos"):
+        outcome = None
+        for s in CHEAP_ORDER:
+            v = data.get(s, {}).get(p)
+            if v is None: continue
+            d = _clip_decision(s, v)
+            if d == "bad":    fail += 1;  by_layer[f"{s}:FAIL"]  = by_layer.get(f"{s}:FAIL", 0) + 1;  outcome = 1; break
+            if d == "unsure": defer += 1; by_layer[f"{s}:defer"] = by_layer.get(f"{s}:defer", 0) + 1; outcome = 1; break
+        if outcome is None: clear += 1
+    tot = fail + defer + clear
+    return {"total": tot, "fail": fail, "defer": defer, "clear": clear,
+            "by_layer": dict(sorted(by_layer.items())), "versions": ver}
 
 # Registry. version bumps when a detector/threshold changes -> new result rows, old kept.
 # CASCADE gates: a cheap level runs only on clips the level below marked confident-GOOD; the judge

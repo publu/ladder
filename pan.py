@@ -91,6 +91,25 @@ def cmd_status(con, a):
                               (name, ver)).fetchone()[0]
             print(f"{name:10s} {ver:8s} {done:8d} {100*done//max(tot,1):4d}% {bad:7d}")
 
+def cmd_funnel(con, a):
+    """Print the measured cascade funnel: where every clip exits the cheap layers. --md emits the
+    README table. Reproducible from any triage.db, so the numbers are checkable, not asserted."""
+    f = P.funnel(con); t = max(f["total"], 1)
+    pct = lambda n: f"{100*n/t:.1f}%"
+    if getattr(a, "md", False):
+        print(f"On this corpus ({f['total']:,} clips):\n")
+        print("| | clips | share |\n|---|---|---|")
+        print(f"| **decided FAIL** by a cheap layer | {f['fail']:,} | {pct(f['fail'])} |")
+        print(f"| **cleared PASS** through the cheap layers, never judged | {f['clear']:,} | {pct(f['clear'])} |")
+        print(f"| **deferred to the judge** (genuinely uncertain) | {f['defer']:,} | {pct(f['defer'])} |")
+        return
+    print(f"corpus: {f['total']:,} clips    (stage versions: {f['versions']})")
+    print(f"  decided FAIL by a cheap layer : {f['fail']:>8,}  {pct(f['fail'])}")
+    print(f"  cleared PASS (never judged)   : {f['clear']:>8,}  {pct(f['clear'])}")
+    print(f"  deferred to the judge         : {f['defer']:>8,}  {pct(f['defer'])}")
+    print(f"  cheap layers resolve on their own: {pct(f['fail']+f['clear'])}")
+    print("  where clips exit:", f["by_layer"])
+
 def cmd_bad(con, a):
     """Final list with the VLM (Claude) as authority: cheap stages PROPOSE suspects, Claude
     DISPOSES. A video is CONFIRMED bad only if (a) a hard unambiguous fail (corrupt/black/empty —
@@ -136,9 +155,10 @@ def main():
     b = sub.add_parser("bad"); b.add_argument("--min", type=int, default=1)
     j = sub.add_parser("judge"); j.add_argument("--limit", type=int, default=0); j.add_argument("--sample", type=int, default=0)
     sub.add_parser("verdict")
+    fn = sub.add_parser("funnel"); fn.add_argument("--md", action="store_true")
     a = ap.parse_args()
     con = P.db()
-    {"catalog": cmd_catalog, "run": cmd_run, "status": cmd_status,
+    {"catalog": cmd_catalog, "run": cmd_run, "status": cmd_status, "funnel": cmd_funnel,
      "bad": cmd_bad, "judge": cmd_judge, "verdict": cmd_verdict}[a.cmd](con, a)
 
 if __name__ == "__main__":

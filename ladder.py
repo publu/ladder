@@ -20,6 +20,7 @@ CMDS = {
     "run":      "climb the ladder over all clips (L0..L3), resumable + versioned",
     "judge":    "L4: Claude grades the flagged suspects against the rubric (+ --sample N clean)",
     "verdict":  "assemble PASS / BORDERLINE / FAIL per clip from the ladder",
+    "funnel":   "print the measured cascade funnel (FAIL / cleared / deferred); --md for the table",
     "status":   "per-level progress, rate, and verdict counts",
     "bad":      "export the consolidated silt list (bad_videos.json)",
     "eval":     "score a level vs the judge, and compare versions over time",
@@ -44,7 +45,7 @@ def main():
         sys.argv = ["download", *rest]; import download; return download.main()
     if cmd == "eval":
         sys.argv = ["eval", *rest]; import eval as ev; return ev.main()
-    if cmd in ("catalog", "run", "judge", "verdict", "status", "bad"):
+    if cmd in ("catalog", "run", "judge", "verdict", "status", "bad", "funnel"):
         sys.argv = ["pan", cmd, *rest]; import pan; return pan.main()
     print(f"unknown command: {cmd}\n"); help_(); sys.exit(1)
 
