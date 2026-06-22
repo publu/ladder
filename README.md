@@ -1,8 +1,10 @@
 # LADDER — climb your way to cleaner data
 
+![LADDER viewer — the live ladder, a clip's per-item rubric assessment, the judge note, and a click-to-jump silt timeline](docs/viewer.png)
+
 ```
   ╦  ╔═╗╔╦╗╔╦╗╔═╗╦═╗      L0 meta → L1 cv → L2 geometry → L3 semantic → L4 JUDGE
-  ║  ╠═╣ ║║ ║║║╣ ╠╦╝      each rung is cheaper than the next;
+  ║  ╠═╣ ║║ ║║║╣ ╠╦╝      PASS · BORDERLINE · FAIL, graded against a capture-quality rubric
   ╩═╝╩ ╩═╩╝═╩╝╚═╝╩╚═      cheap & broad at the base, costly & precise at the top
 ```
 
