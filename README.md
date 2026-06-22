@@ -107,14 +107,14 @@ export LADDER_DATA=/path/with/space       # where the mp4s live / will download 
 
 ## Config
 - `LADDER_DATA`: data root for videos, `triage.db`, and caches. Default `~/ladder-data`.
-- Detector thresholds and the ladder (levels, triggers, versions) live in `panlib.py` (`STAGES`).
-- The judge model is `claude -p`. Swap it in `panlib.py:_vlm`.
+- Detector thresholds and the ladder (levels, triggers, versions) live in `core.py` (`STAGES`, `BANDS`).
+- The judge model is `claude -p`. Swap it in `core.py:_vlm`.
 
 ## Layout
 ```
 ladder.py        CLI entry (climb your way to cleaner data)
-panlib.py        store + keyframe cache + the ladder (STAGES) + rubric loader + judge
-pan.py           orchestrator: catalog / run / judge / verdict / status / funnel / bad
+core.py          store + keyframe cache + the ladder (STAGES) + bands + rubric loader + judge
+cli.py           orchestrator: catalog / run / judge / verdict / status / funnel / bad
 serve.py         the web viewer (SQLite -> SPA, presigned-ready)
 eval.py          score levels vs the judge; compare versions
 download.py      EgoVerse downloader (uses the public creds)

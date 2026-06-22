@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""panlib — the panning rig's core: SQLite state store + keyframe cache + stage registry.
+"""core — the ladder's core: SQLite state store + keyframe cache + stage registry + bands.
 
 One source of truth (triage.db) so runs are resumable and versioned (re-running a tuned detector
 inserts new rows, never overwrites). Decode once into a keyframe cache; every stage reads it so
@@ -147,7 +147,7 @@ def band(v, key, low_is_bad=None, bands=None):
 
 # ----------------------------------------------------------------- stages (wrap existing detectors)
 # Each stage fn: (path_rel) -> verdict dict {bad: bool, reasons: [...], ...}. Lazy-import heavy deps
-# INSIDE the fn so importing panlib stays light and only the running stage loads torch/mediapipe.
+# INSIDE the fn so importing core stays light and only the running stage loads torch/mediapipe.
 
 def _meta(path_rel):
     import subprocess

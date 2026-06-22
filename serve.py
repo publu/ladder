@@ -8,7 +8,7 @@ video + silt-timeline (click a marker to jump), and a RUBRIC ASSESSMENT + JUDGE 
 import hashlib, json, os, subprocess, sys, http.server, socketserver
 from urllib.parse import urlparse, parse_qs, unquote
 sys.path.insert(0, os.path.dirname(__file__))
-import panlib as P
+import core as P
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8123
 THUMBS = f"{P.SSD}/thumbs"; os.makedirs(THUMBS, exist_ok=True)
@@ -243,33 +243,33 @@ class H(http.server.SimpleHTTPRequestHandler):
 
 SPA = r"""<!doctype html><meta charset=utf-8><title>ladder</title>
 <style>
-:root{--g:#39d353;--y:#e0b341;--r:#e0683b;--bg:#0a0c0a;--pan:#10140f;--ln:#1d241b;--dim:#5a6a52}
+:root{--g:#39d353;--y:#e0b341;--r:#e0683b;--bg:#0a0c0a;--panel:#10140f;--ln:#1d241b;--dim:#5a6a52}
 *{box-sizing:border-box} body{margin:0;background:var(--bg);color:#c8d6c0;font:13px/1.45 ui-monospace,Menlo,monospace;display:grid;grid-template-columns:260px 1fr 380px;height:100vh}
 a,button{font:inherit} ::-webkit-scrollbar{width:8px} ::-webkit-scrollbar-thumb{background:var(--ln)}
 .col{height:100vh;overflow:auto;padding:14px}
 #left{border-right:1px solid var(--ln)} #right{border-left:1px solid var(--ln)}
 h1{font-size:14px;color:var(--g);letter-spacing:.12em;margin:0 0 4px} .sub{color:var(--dim);font-size:11px;margin-bottom:12px}
 .lbl{color:var(--dim);font-size:10px;letter-spacing:.12em;margin:16px 0 6px;text-transform:uppercase}
-select{background:var(--pan);border:1px solid var(--ln);color:#c8d6c0;padding:5px;border-radius:4px;width:100%;margin-bottom:8px}
+select{background:var(--panel);border:1px solid var(--ln);color:#c8d6c0;padding:5px;border-radius:4px;width:100%;margin-bottom:8px}
 .ep{display:flex;justify-content:space-between;align-items:center;padding:7px 9px;border:1px solid transparent;border-radius:5px;cursor:pointer}
-.ep:hover{background:var(--pan)} .ep.on{background:#152013;border-color:var(--g)}
+.ep:hover{background:var(--panel)} .ep.on{background:#152013;border-color:var(--g)}
 .ep .n{color:var(--dim);font-size:11px} .badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:3px}
 .badge.PASS{color:var(--g);border:1px solid #10331a} .badge.BDLN{color:var(--y);border:1px solid #3a2f10} .badge.FAIL{color:var(--r);border:1px solid #3a1c10}
 video{width:100%;background:#000;border-radius:6px;border:1px solid var(--ln)}
 .controls{display:flex;gap:8px;align-items:center;margin:10px 0;color:var(--dim)}
-.controls button{background:var(--pan);border:1px solid var(--ln);color:#c8d6c0;padding:4px 12px;border-radius:5px;cursor:pointer}
-#tl{position:relative;height:26px;background:var(--pan);border:1px solid var(--ln);border-radius:5px;margin-top:8px;cursor:pointer}
+.controls button{background:var(--panel);border:1px solid var(--ln);color:#c8d6c0;padding:4px 12px;border-radius:5px;cursor:pointer}
+#tl{position:relative;height:26px;background:var(--panel);border:1px solid var(--ln);border-radius:5px;margin-top:8px;cursor:pointer}
 #play{position:absolute;top:0;bottom:0;width:2px;background:var(--g);left:0}
 .mk{position:absolute;top:0;bottom:0;width:4px;border-radius:2px;cursor:pointer}
 .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .chip{border:1px solid var(--ln);border-radius:14px;padding:3px 10px;font-size:11px;color:#c8d6c0;cursor:pointer}
 .chip b{color:var(--g)} .vpill{font-size:13px;font-weight:700;padding:3px 14px;border-radius:4px}
-.rrow{display:flex;gap:8px;padding:9px 0;border-bottom:1px solid var(--ln);cursor:pointer} .rrow:hover{background:var(--pan)}
+.rrow{display:flex;gap:8px;padding:9px 0;border-bottom:1px solid var(--ln);cursor:pointer} .rrow:hover{background:var(--panel)}
 .rrow .num{color:var(--dim);width:16px} .rrow .txt{flex:1} .rrow .desc{color:var(--dim);font-size:11px}
-.box{background:var(--pan);border:1px solid var(--ln);border-radius:6px;padding:11px;margin-top:8px}
+.box{background:var(--panel);border:1px solid var(--ln);border-radius:6px;padding:11px;margin-top:8px}
 .note{color:#9fb596;font-size:12px} .kv{display:flex;justify-content:space-between;border-bottom:1px solid var(--ln);padding:5px 0;font-size:11px}
 .kv .k{color:var(--dim)} .tier{font-size:10px;padding:1px 6px;border-radius:3px;border:1px solid var(--ln);margin-right:4px}
-.lev{background:var(--pan);border:1px solid var(--ln);border-radius:5px;padding:7px 9px;margin-bottom:6px}
+.lev{background:var(--panel);border:1px solid var(--ln);border-radius:5px;padding:7px 9px;margin-bottom:6px}
 .lev .top{display:flex;justify-content:space-between;align-items:center}
 .lev .lv{color:var(--g);font-weight:600;font-size:11px} .lev .chk{color:var(--dim);font-size:10px;margin:2px 0 5px}
 .lev .st{font-size:10px} .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin:0 3px}

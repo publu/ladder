@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""pan — the panning-rig orchestrator. One entry point; stages run sequentially (no SSD
-contention), resumable (skips done), versioned (never loses prior runs).
+"""cli — the stage orchestrator behind `ladder`. Stages run sequentially (no SSD contention),
+resumable (skips done), versioned (never loses prior runs).
 
-  pan.py catalog                 # glob SSD -> videos table
-  pan.py import                  # fold existing bad_all.jsonl / tags*.json into the DB
-  pan.py run [--stage cheap_cv]  # run a stage (or all, in order); resumes automatically
-  pan.py status                  # per-stage progress + bad counts
-  pan.py bad [--min 1]           # ranked consolidated bad-list from the DB
+  ladder catalog                 # glob SSD -> videos table
+  ladder run [--stage cheap_cv]  # run a stage (or all, in order); resumes automatically
+  ladder status                  # per-stage progress + bad counts
+  ladder funnel                  # measured FAIL / cleared / deferred breakdown
+  ladder bad [--min 1]           # ranked consolidated bad-list from the DB
 """
 from __future__ import annotations
 import argparse, json, os, sys, time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 sys.path.insert(0, os.path.dirname(__file__))
-import panlib as P
+import core as P
 
 def _run_stage(con, name, limit=0):
     st = P.STAGES.get(name)

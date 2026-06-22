@@ -46,7 +46,7 @@ def main():
     if cmd == "eval":
         sys.argv = ["eval", *rest]; import eval as ev; return ev.main()
     if cmd in ("catalog", "run", "judge", "verdict", "status", "bad", "funnel"):
-        sys.argv = ["pan", cmd, *rest]; import pan; return pan.main()
+        sys.argv = ["ladder", cmd, *rest]; import cli; return cli.main()
     print(f"unknown command: {cmd}\n"); help_(); sys.exit(1)
 
 if __name__ == "__main__":

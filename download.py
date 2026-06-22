@@ -13,7 +13,7 @@ import argparse, os, subprocess, sys, time, urllib.request, xml.etree.ElementTre
 from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(__file__))
 import egoverse_list as e
-import panlib as P
+import core as P
 
 NS = "{http://s3.amazonaws.com/doc/2006-03-01/}"
 ROOTS = ["processed_v3/", "processed_v2/"]

@@ -10,7 +10,7 @@ and comparable ("did this optimization actually help?"). Results append to the e
 from __future__ import annotations
 import argparse, json, os, random, sys, time
 sys.path.insert(0, os.path.dirname(__file__))
-import panlib as P
+import core as P
 GOLD = f"{P.SSD}/gold.jsonl"
 CATS = ["looking_away", "not_folding", "no_clothes", "missing_hands", "phone", "black", "blur", "static"]
 
