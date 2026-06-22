@@ -107,6 +107,10 @@ def get_frames(path_rel, w=160, h=120):
     np.savez_compressed(npz, f=np.stack(frames), t=np.array(times, "f4"))
     return frames, times
 
+# confidence cascade: each detector decides bad/good per signal, defers the middle band to the judge.
+def _worst(ds):
+    return "bad" if "bad" in ds else ("unsure" if "unsure" in ds else "good")
+
 # ----------------------------------------------------------------- stages (wrap existing detectors)
 # Each stage fn: (path_rel) -> verdict dict {bad: bool, reasons: [...], ...}. Lazy-import heavy deps
 # INSIDE the fn so importing panlib stays light and only the running stage loads torch/mediapipe.
@@ -122,28 +126,33 @@ def _meta(path_rel):
         reasons = []
         if dur == 0: reasons.append("empty")
         if 0 < br < 1000: reasons.append("corrupt")
-        return {"bad": bool(reasons), "reasons": reasons, "bitrate": br, "dur": round(dur, 1)}
+        return {"decision": "bad" if reasons else "good", "bad": bool(reasons),
+                "reasons": reasons, "bitrate": br, "dur": round(dur, 1)}
     except Exception as e:
-        return {"bad": True, "reasons": ["probe_fail"], "err": str(e)[:80]}
+        return {"decision": "bad", "bad": True, "reasons": ["probe_fail"], "err": str(e)[:80]}
 
 def _cheap_cv(path_rel):
     import cv2, numpy as np
     frames, times = get_frames(path_rel)
     if not frames:
-        return {"bad": True, "reasons": ["empty"], "hits": []}
+        return {"decision": "bad", "bad": True, "reasons": ["empty"], "hits": []}
     g = [cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames]
     luma = np.array([x.mean() for x in g])
     blur = np.array([cv2.Laplacian(x, cv2.CV_64F).var() for x in g])
     mot = (np.array([np.abs(g[i].astype("f4")-g[i-1].astype("f4")).mean()/255 for i in range(1, len(g))])
            if len(g) > 1 else np.array([1.0]))
     bf, blf, mm = float((luma < 16).mean()), float((blur < 100).mean()), float(np.median(mot))
-    # v2: blur cut 0.5->0.85 (data: VLM-confirmed blur had blur_frac>=0.68, cleared overlapped low end).
-    reasons = [r for r, c in (("black", bf > 0.5), ("blur", blf > 0.85), ("static", mm < 0.004)) if c]
+    # per-signal decision: confident bad / confident good / unsure-middle (defers to judge)
+    dblack  = "bad" if bf > 0.5  else ("good" if bf < 0.1  else "unsure")
+    dblur   = "bad" if blf > 0.9 else ("good" if blf < 0.5 else "unsure")
+    dstatic = "bad" if mm < 0.002 else ("good" if mm > 0.01 else "unsure")
+    decision = _worst([dblack, dblur, dstatic])
+    reasons = [r for r, d in (("black", dblack), ("blur", dblur), ("static", dstatic)) if d != "good"]
     hits = []  # WHERE each flag fired (in-video seconds)
-    if "black" in reasons: hits += [{"reason": "black", "t": round(times[i], 1)} for i in np.where(luma < 16)[0]]
-    if "blur" in reasons:  hits += [{"reason": "blur", "t": round(times[i], 1)} for i in np.where(blur < 100)[0]]
-    if "static" in reasons: hits.append({"reason": "static", "t": 0.0})  # whole-clip
-    return {"bad": bool(reasons), "reasons": reasons, "hits": hits[:30],
+    if dblack != "good":  hits += [{"reason": "black", "t": round(times[i], 1)} for i in np.where(luma < 16)[0]]
+    if dblur != "good":   hits += [{"reason": "blur", "t": round(times[i], 1)} for i in np.where(blur < 100)[0]]
+    if dstatic != "good": hits.append({"reason": "static", "t": 0.0})  # whole-clip
+    return {"decision": decision, "bad": decision != "good", "reasons": reasons, "hits": hits[:30],
             "black_frac": round(bf, 2), "blur_frac": round(blf, 2), "med_motion": round(mm, 4)}
 
 _M = {}  # per-process lazy model singletons (loaded once per worker, reused across videos)
@@ -166,7 +175,7 @@ def _geometry(path_rel):
     import numpy as np, cv2, mediapipe as mp
     frames, times = get_frames(path_rel)
     if not frames:
-        return {"bad": True, "reasons": ["empty"], "hits": []}
+        return {"decision": "bad", "bad": True, "reasons": ["empty"], "hits": []}
     if "hands" not in _M:
         from mediapipe.tasks import python
         from mediapipe.tasks.python import vision
@@ -179,16 +188,17 @@ def _geometry(path_rel):
         if not _M["hands"].detect(img).hand_landmarks:
             nohit.append(round(t, 1))
     frac = len(nohit) / len(frames)
-    bad = frac > 0.5
-    return {"bad": bad, "reasons": (["missing_hands"] if bad else []), "nohand_frac": round(frac, 2),
-            "hits": [{"reason": "missing_hands", "t": t} for t in nohit[:30]] if bad else []}
+    decision = "bad" if frac > 0.8 else ("good" if frac < 0.3 else "unsure")
+    return {"decision": decision, "bad": decision != "good", "nohand_frac": round(frac, 2),
+            "reasons": (["missing_hands"] if decision != "good" else []),
+            "hits": [{"reason": "missing_hands", "t": t} for t in nohit[:30]] if decision != "good" else []}
 
 def _objects(path_rel):
     """Phone (+ any COCO class): YOLO11n raw batched over cached keyframes. Reuses find_bad logic."""
     import numpy as np, torch, torch.nn.functional as F
     frames, times = get_frames(path_rel)
     if not frames:
-        return {"bad": True, "reasons": ["empty"], "hits": []}
+        return {"decision": "bad", "bad": True, "reasons": ["empty"], "hits": []}
     if "yolo" not in _M:
         from ultralytics import YOLO
         try: from ultralytics.utils.nms import non_max_suppression as nms
@@ -205,9 +215,10 @@ def _objects(path_rel):
             if len(f):
                 c = float(f[:, 4].max()); best = max(best, c)
                 hits.append({"reason": "phone", "t": round(times[i], 1), "conf": round(c, 2)})
-    bad = best > 0.35
-    return {"bad": bad, "reasons": (["phone"] if bad else []), "phone_conf": round(best, 2),
-            "hits": hits if bad else []}
+    # phone is FP-prone (folded garments read as phones), so high bar for confident-bad; middle -> judge
+    decision = "bad" if best > 0.6 else ("good" if best < 0.35 else "unsure")
+    return {"decision": decision, "bad": decision != "good", "reasons": (["phone"] if decision != "good" else []),
+            "phone_conf": round(best, 2), "hits": hits if decision != "good" else []}
 
 PROMPTS = {  # TASK-AGNOSTIC capture-quality scene groups for SigLIP zero-shot (on_task = good)
     "on_task": ["looking down at hands working on a table", "hands manipulating objects on a work surface",
@@ -222,7 +233,7 @@ def _semantic(path_rel):
     import numpy as np, cv2, torch
     frames, times = get_frames(path_rel)
     if not frames:
-        return {"bad": True, "reasons": ["empty"], "hits": []}
+        return {"decision": "bad", "bad": True, "reasons": ["empty"], "hits": []}
     if "siglip" not in _M:
         import open_clip
         m, _, pre = open_clip.create_model_and_transforms("ViT-B-16-SigLIP", pretrained="webli")
@@ -242,10 +253,15 @@ def _semantic(path_rel):
     win = [gidx[i] for i in sim.argmax(1)]  # winning group per frame
     from collections import Counter
     c = Counter(win); n = len(win)
-    reasons = [g for g in ("looking_away", "no_workspace") if c.get(g, 0)/n >= 0.4]
+    decs = {}
+    for g in ("looking_away", "no_workspace"):
+        f = c.get(g, 0) / n
+        decs[g] = "bad" if f > 0.7 else ("good" if f < 0.3 else "unsure")
+    decision = _worst(list(decs.values()))
+    reasons = [g for g, d in decs.items() if d != "good"]
     hits = [{"reason": win[i], "t": round(times[i], 1)} for i in range(n) if win[i] in reasons]
-    return {"bad": bool(reasons), "reasons": reasons, "hits": hits[:30],
-            "frac": {g: round(c.get(g, 0)/n, 2) for g in groups}}
+    return {"decision": decision, "bad": decision != "good", "reasons": reasons, "hits": hits[:30],
+            "frac": {g: round(c.get(g, 0) / n, 2) for g in groups}}
 
 import functools
 @functools.lru_cache(maxsize=4)
@@ -287,39 +303,48 @@ def _vlm(path_rel, rubric="capture_quality"):
         return {"bad": False, "verdict": "PASS", "reasons": [], "err": str(e)[:80], "hits": []}
 
 def assemble_verdict(con, path):
-    """Combine the ladder into one PASS/BDLN/FAIL per clip. Judge (L4) is authority where present;
-    else hard-kill (L1 black/corrupt) = FAIL; else cheap-flag-not-judged = SUSPECT(BDLN); else PASS."""
-    vs = {s: json.loads(j) for s, j in con.execute("SELECT stage, verdict_json FROM results WHERE path=?", (path,))}
-    HARD = {"black", "empty", "corrupt", "probe_fail", "decode_fail"}
-    if "vlm" in vs:
-        return {"verdict": vs["vlm"].get("verdict", "PASS"), "by": "judge"}
-    flagged = {s: v for s, v in vs.items() if s != "vlm" and v.get("bad")}
-    if any(set(v.get("reasons", [])) & HARD for v in flagged.values()):
-        return {"verdict": "FAIL", "by": "hard-silt"}
-    if flagged:
-        return {"verdict": "BDLN", "by": "suspect-pending-judge"}
-    return {"verdict": "PASS", "by": "auto-clean"}
+    """Cascade verdict: a layer that was CONFIDENT decides; only UNSURE reaches the judge.
+    confident-bad at any cheap layer -> FAIL. any unsure -> judge rules (or PENDING). else PASS."""
+    vs = {}  # active version per stage only (avoid colliding old-version rows)
+    for s in ORDER:
+        row = con.execute("SELECT verdict_json FROM results WHERE path=? AND stage=? AND version=?",
+                          (path, s, STAGES[s]["version"])).fetchone()
+        if row:
+            vs[s] = json.loads(row[0])
+    cheap = {s: v for s, v in vs.items() if s != "vlm"}
+    bad_at = [s for s, v in cheap.items() if v.get("decision") == "bad"]
+    if bad_at:
+        return {"verdict": "FAIL", "by": bad_at[0]}                       # a layer was sure
+    if any(v.get("decision") == "unsure" for v in cheap.values()):
+        if "vlm" in vs:
+            return {"verdict": vs["vlm"].get("verdict", "PASS"), "by": "judge"}
+        return {"verdict": "BDLN", "by": "pending-judge"}                 # unsure, awaiting the judge
+    return {"verdict": "PASS", "by": "auto-clean"}                        # confident-good all the way up
 
 # Registry. version bumps when a detector/threshold changes -> new result rows, old kept.
-# gate = SQL returning eligible paths (the funnel): a stage only sees what cheaper stages passed.
-PASSED_CHEAP = ("SELECT path FROM results WHERE stage='cheap_cv' "
-                "AND verdict_json NOT LIKE '%\"black\"%' AND verdict_json NOT LIKE '%\"empty\"%'")
-FLAGGED_ANY = ("SELECT DISTINCT path FROM results WHERE json_extract(verdict_json,'$.bad')=1")
+# CASCADE gates: a cheap level runs only on clips the level below marked confident-GOOD; the judge
+# runs only on the UNSURE residue (clips some layer could not call). This is the water filter.
+def good_from(prev):  # clips the previous layer was confidently fine with -> flow up
+    return f"SELECT path FROM results WHERE stage='{prev}' AND json_extract(verdict_json,'$.decision')='good'"
+UNSURE_ANY = ("SELECT DISTINCT path FROM results WHERE stage IN "
+              "('cheap_cv','geometry','objects','semantic') AND json_extract(verdict_json,'$.decision')='unsure'")
 
 # level = the ladder rung; trigger = what FLAGs a clip up toward the judge. Declared here so the
 # pass/escalate logic lives in one readable place (this is the "ladder" the UI shows).
+# Cascade: each cheap level runs only on what the level below marked confident-GOOD; the judge runs
+# only on the UNSURE residue. version "c1" = cascade results (carry a per-clip decision bad/good/unsure).
 STAGES = {
-    "meta":     {"level": "L0", "version": "v1", "fn": _meta,     "workers": 12, "gate": None,
-                 "trigger": "KILL if corrupt/empty (no decode)"},
-    "cheap_cv": {"level": "L1", "version": "v2", "fn": _cheap_cv, "workers": 8,  "gate": None,
-                 "trigger": "KILL black; FLAG blur>0.85 / static"},
-    "geometry": {"level": "L2", "version": "v1", "fn": _geometry, "workers": 6,  "gate": PASSED_CHEAP,
-                 "trigger": "FLAG missing_hands>0.5"},
-    "objects":  {"level": "L3", "version": "v1", "fn": _objects,  "workers": 3,  "gate": PASSED_CHEAP,
-                 "trigger": "FLAG phone>0.35"},
-    "semantic": {"level": "L3", "version": "cap", "fn": _semantic, "workers": 3, "gate": PASSED_CHEAP,
-                 "trigger": "FLAG looking_away/no_workspace >=0.4"},
-    "vlm":      {"level": "L4", "version": "cap", "fn": _vlm,      "workers": 4, "gate": FLAGGED_ANY,
-                 "trigger": "JUDGE: grade capture-quality rubric -> PASS/BDLN/FAIL"},
+    "meta":     {"level": "L0", "version": "c1",  "fn": _meta,     "workers": 12, "gate": None,
+                 "trigger": "bad if corrupt/empty, else good (no decode)"},
+    "cheap_cv": {"level": "L1", "version": "c1",  "fn": _cheap_cv, "workers": 8,  "gate": good_from("meta"),
+                 "trigger": "bad: black>.5 / blur>.9 / dead. good: clear. else unsure->judge"},
+    "geometry": {"level": "L2", "version": "c1",  "fn": _geometry, "workers": 6,  "gate": good_from("cheap_cv"),
+                 "trigger": "bad: no_hands>.8. good: hands<.3. else unsure->judge"},
+    "objects":  {"level": "L3", "version": "c1",  "fn": _objects,  "workers": 3,  "gate": good_from("geometry"),
+                 "trigger": "bad: phone>.6. good: <.35. else unsure->judge"},
+    "semantic": {"level": "L3", "version": "c1",  "fn": _semantic, "workers": 3,  "gate": good_from("objects"),
+                 "trigger": "bad: looking_away/no_workspace>.7. good: <.3. else unsure->judge"},
+    "vlm":      {"level": "L4", "version": "cap", "fn": _vlm,      "workers": 4,  "gate": UNSURE_ANY,
+                 "trigger": "JUDGE the unsure residue: grade rubric -> PASS/BDLN/FAIL"},
 }
 ORDER = ["meta", "cheap_cv", "geometry", "objects", "semantic", "vlm"]

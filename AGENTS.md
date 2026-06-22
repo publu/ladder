@@ -19,16 +19,20 @@ task-agnostic capture-quality rubric. Designed for one machine + a large local v
 - **Sequential, not parallel across levels.** Levels run one at a time (the orchestrator loops
   `panlib.ORDER`). This is deliberate: running CV + GPU + judge at once thrashes the single disk.
   Parallelism lives *within* a level (a worker pool), not across them.
-- **The judge is the authority.** `pan verdict` assembles PASS/BDLN/FAIL: hard-silt (corrupt/black)
-  auto-FAILs, the judge's call wins where it exists, cheap-flagged-but-unjudged = BORDERLINE, clean = PASS.
+- **Confidence cascade (water filter).** Each cheap detector returns `decision` = `bad`/`good`/`unsure`
+  via two thresholds: `score>=hi` → confident BAD (FAIL, stop); `score<=lo` → confident GOOD (flows UP
+  to the next level); in between → UNSURE (escalate to the judge). A level runs only on clips the level
+  below marked GOOD; the judge runs only on the UNSURE residue (a few %), never on everything flagged.
+- **The judge rules the residue.** `pan verdict` assembles PASS/BDLN/FAIL: confident-bad at any layer →
+  FAIL; unsure → the judge's call (or BORDERLINE until judged); confident-good all the way up → PASS.
 
 ## The ladder (`panlib.STAGES`)
 `meta`(L0 ffprobe) → `cheap_cv`(L1 luma/blur/motion) → `geometry`(L2 MediaPipe hands) →
 `objects`(L3 YOLO phone) + `semantic`(L3 SigLIP) → `vlm`(L4 Claude judge). Each STAGES entry declares
 `level`, `version`, `fn`, `workers`, `gate` (SQL selecting which clips it runs on — the funnel), and a
 human `trigger` string. A detector `fn(path_rel)` returns
-`{"bad": bool, "reasons": [...], "hits": [{"reason","t"}], ...}` — **always include `hits` with
-in-video seconds** so the viewer can jump to the moment.
+`{"decision": "bad"|"good"|"unsure", "reasons": [...], "hits": [{"reason","t"}], ...}` — **always
+include `hits` with in-video seconds** so the viewer can jump to the moment.
 
 ## The rubric is the single source of truth for "what's bad"
 `rubrics/capture_quality.json` (5 task-agnostic items) drives BOTH the L3 SigLIP prompts and the L4
@@ -56,6 +60,7 @@ export LADDER_DATA=/path/to/data
 
 ## When adding a new detector/level
 1. Write `fn(path_rel)` in `panlib.py` using `get_frames` (cached); return the verdict dict with `hits`.
-2. Add it to `STAGES` with `level`, `version`, `gate` (usually `PASSED_CHEAP`), and a `trigger`.
+2. Add it to `STAGES` with `level`, `version`, `gate` (`good_from(prev_stage)` so it runs on the GOOD
+   residue from the level below), and a `trigger`. Return a `decision` (bad/good/unsure) via lo/hi bands.
 3. If it grades the rubric, read items from `load_rubric()` — don't hardcode.
 4. Reuse the cache; don't re-decode. Test with `--limit`.

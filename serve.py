@@ -38,8 +38,12 @@ def episode(h):
     row = con.execute("SELECT path FROM videos WHERE hash=?", (h,)).fetchone()
     if not row: return {"err": "not found"}
     path = row[0]
-    tiers = {s: json.loads(j) for s, j in con.execute(
-        "SELECT stage, verdict_json FROM results WHERE path=?", (path,))}
+    tiers = {}  # active version per stage only (old-version rows lack the cascade decision)
+    for s in P.ORDER:
+        r = con.execute("SELECT verdict_json FROM results WHERE path=? AND stage=? AND version=?",
+                        (path, s, P.STAGES[s]["version"])).fetchone()
+        if r:
+            tiers[s] = json.loads(r[0])
     ladder = []
     for name in P.ORDER:
         if name in tiers:
@@ -51,7 +55,8 @@ def episode(h):
         for hh in (v.get("hits") or []):
             hits.append({"reason": hh["reason"], "t": hh["t"], "tier": s})
     hits.sort(key=lambda x: x["t"])
-    vd = tiers.get("verdict", {}).get("verdict", "PASS")
+    vr = con.execute("SELECT verdict_json FROM results WHERE path=? AND stage='verdict'", (path,)).fetchone()
+    vd = (json.loads(vr[0]) if vr else {}).get("verdict", "PASS")
     judge = tiers.get("vlm")
     R = P.load_rubric()
     return {"hash": h, "video": path, "verdict": vd, "ladder": ladder, "hits": hits,
@@ -73,7 +78,9 @@ def stats():
     for s in P.ORDER:
         ver = P.STAGES[s]["version"]   # only the ACTIVE version — ignore obsolete old-version rows
         done = con.execute("SELECT COUNT(*) FROM results WHERE stage=? AND version=?", (s, ver)).fetchone()[0]
-        silt = con.execute("SELECT COUNT(*) FROM results WHERE stage=? AND version=? AND json_extract(verdict_json,'$.bad')=1", (s, ver)).fetchone()[0]
+        # cascade: a layer either DECIDES bad (FAIL, stop) or ESCALATES unsure (-> judge); good flows up
+        bad = con.execute("SELECT COUNT(*) FROM results WHERE stage=? AND version=? AND json_extract(verdict_json,'$.decision')='bad'", (s, ver)).fetchone()[0]
+        unsure = con.execute("SELECT COUNT(*) FROM results WHERE stage=? AND version=? AND json_extract(verdict_json,'$.decision')='unsure'", (s, ver)).fetchone()[0]
         last = con.execute("SELECT MAX(ran_at) FROM results WHERE stage=? AND version=?", (s, ver)).fetchone()[0]
         active = bool(last and now - last < 20)          # wrote in last 20s = running now
         rate, eta = 0.0, None
@@ -93,7 +100,8 @@ def stats():
             prec = {"judged": jd, "confirmed": cf, "rate": round(cf/jd, 2) if jd else None}
         out.append({"level": P.STAGES[s]["level"], "tier": s, "label": LABELS.get(s, ""),
                     "done": done, "total": tot, "pct": round(100*done/max(tot, 1), 1),
-                    "silt": silt, "status": status, "rate": round(rate, 1), "eta": eta, "perf": prec})
+                    "bad": bad, "unsure": unsure, "escal": round(100*unsure/max(done, 1), 1),
+                    "status": status, "rate": round(rate, 1), "eta": eta, "perf": prec})
     vd = {r[0]: r[1] for r in con.execute(
         "SELECT json_extract(verdict_json,'$.verdict'), COUNT(*) FROM results WHERE stage='verdict' GROUP BY 1")}
     return {"total": tot, "tiers": out, "verdicts": vd}
@@ -238,7 +246,8 @@ async function live(){
       '<span class=st>'+dot+sttxt+'</span></div>'+
       '<div class=chk>'+t.label+'</div>'+
       '<div class=bar><i style=width:'+t.pct+'%></i></div>'+
-      '<div class=nums><span>processed <b>'+fmt(t.done)+'</b> / '+fmt(t.total)+' ('+t.pct+'%)</span><span>flagged <b>'+fmt(t.silt)+'</b></span></div>'+
+      '<div class=nums><span>processed <b>'+fmt(t.done)+'</b> / '+fmt(t.total)+' ('+t.pct+'%)</span>'+
+        (t.tier=='vlm'?'':'<span>FAIL <b style=color:var(--r)>'+fmt(t.bad)+'</b> · →judge <b style=color:var(--a,#d9a441)>'+fmt(t.unsure)+'</b> ('+t.escal+'%)</span>')+'</div>'+
       '<div class=nums style=margin-top:2px><span>'+conf+'</span></div></div>';
   }).join('');
   let v=d.verdicts||{}; document.getElementById('summary').innerHTML=
@@ -268,8 +277,10 @@ async function openEp(h,el){
   document.getElementById('note').textContent=(j&&j.judge_note)?j.judge_note:(j&&j.scene?j.scene:'no judge note — not escalated to L4 (passed cheap ladder or pending)');
   // ladder trace
   document.getElementById('ladder').innerHTML=e.ladder.map(L=>{
-    let v=L.verdict, bad=v.bad, rs=(v.reasons||[]).join(', ');
-    return '<div class=kv><span><span class=tier>'+L.level+'</span>'+L.stage+'</span><span style="color:'+(bad?'var(--r)':'var(--g)')+'">'+(bad?('FLAG '+rs):'pass')+'</span></div>';}).join('');
+    let v=L.verdict, d=v.decision, rs=(v.reasons||[]).join(', ');
+    let txt = d=='bad'?('FAIL — '+rs):(d=='unsure'?('UNSURE → judge'+(rs?' ('+rs+')':'')):(L.stage=='vlm'?('judge: '+(v.verdict||'')):'good ↑'));
+    let col = d=='bad'?'var(--r)':(d=='unsure'?'var(--a,#d9a441)':'var(--g)');
+    return '<div class=kv><span><span class=tier>'+L.level+'</span>'+L.stage+'</span><span style="color:'+col+'">'+txt+'</span></div>';}).join('');
   // integrity
   let ig=e.integrity; document.getElementById('integ').innerHTML=
     '<div class=kv><span class=k>clip hash</span><span>'+ig.hash.slice(0,18)+'…</span></div>'+
