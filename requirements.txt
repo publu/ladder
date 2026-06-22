@@ -1,0 +1,14 @@
+# core
+numpy
+opencv-python-headless
+# L2 geometry
+mediapipe
+# L3 semantic / objects
+torch
+open_clip_torch
+ultralytics
+pillow
+# notes:
+#   - also needs system tools:  ffmpeg, ffprobe, s5cmd  (brew install ffmpeg s5cmd)
+#   - the L4 judge shells out to the `claude` CLI (claude -p)
+#   - sqlite3 is stdlib

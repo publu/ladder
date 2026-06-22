@@ -1,0 +1,21 @@
+{
+  "task": "capture quality — is this a usable egocentric manipulation recording (any task)?",
+  "scene": "egocentric (head/chest-mounted) view of a person doing some manipulation task at a work-surface",
+  "items": [
+    {"id": "camera_blocked", "label": "Camera blocked",
+     "desc": "the camera view is obstructed — a hand, hair, or object over the lens, or too dark to see",
+     "fail_if": "the view is obstructed by something over the lens, or it's too dark/blurred to see the scene"},
+    {"id": "no_workspace", "label": "No workspace",
+     "desc": "the work surface / manipulation area is not visible in frame",
+     "fail_if": "there is no table or work-surface in view — e.g. a wall, ceiling, floor, or empty room"},
+    {"id": "no_hands", "label": "No hands",
+     "desc": "the person's hands are not visible",
+     "fail_if": "the person's hands are not visible in the frame"},
+    {"id": "looking_away", "label": "Looking away",
+     "desc": "looking away from the workspace, at other people, or otherwise distracted",
+     "fail_if": "the person is looking away from the work-surface, at another person, or around the room"},
+    {"id": "phone_use", "label": "Phone use",
+     "desc": "the person is using / holding a phone",
+     "fail_if": "the person is using or holding a phone instead of doing the task"}
+  ]
+}

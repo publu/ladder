@@ -1,0 +1,21 @@
+{
+  "task": "fold clothes",
+  "scene": "egocentric (head-mounted) view of a person folding a garment on a table/work-surface",
+  "items": [
+    {"id": "no_engagement", "label": "No engagement",
+     "desc": "hands never engage the garment / the folding task never actually starts",
+     "fail_if": "the hands never touch or manipulate a garment"},
+    {"id": "borderline", "label": "Borderline fold", "borderline": true,
+     "desc": "awkward, unstable, partial, or barely-completed fold",
+     "fail_if": "the fold is sloppy, partial, fumbled, or only barely works"},
+    {"id": "off_task", "label": "Off task",
+     "desc": "looking away from the workspace, idle, talking to people, or using a phone",
+     "fail_if": "the person looks away from the work-surface, sits idle, talks to someone, or handles a phone"},
+    {"id": "occluded", "label": "Occluded",
+     "desc": "hands or garment blocked from view (hair, body, an object)",
+     "fail_if": "hair, the body, or an object blocks the hands or garment for much of the clip"},
+    {"id": "incomplete", "label": "Incomplete",
+     "desc": "truncated or interrupted before the fold is finished",
+     "fail_if": "the clip cuts off or is interrupted before the fold completes"}
+  ]
+}

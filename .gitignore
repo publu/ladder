@@ -1,0 +1,27 @@
+# data + state — never commit the corpus or the DB
+ladder-data/
+*.db
+*.db-wal
+*.db-shm
+frames_cache/
+thumbs/
+*.mp4
+*.npz
+_cp.txt
+_dl.log
+*.log
+
+# local creds (EgoVerse public keys, kept out of git per GitHub secret-scanning)
+egoverse_creds.py
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+
+# model weights (auto-downloaded) + tool state
+*.pt
+*.onnx
+.goalkeeper/
