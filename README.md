@@ -20,18 +20,21 @@ Keyframes are decoded once and every layer reads the cache. Decode on a USB SSD 
 the cascade pays it a single time. The run is resumable, versioned, and watchable in a live web viewer.
 
 ## The funnel, measured
-On the EgoVerse preview corpus (**132,576 clips**), replaying the cascade over the cheap-layer scores:
+This table is the output of `ladder funnel --md` on the EgoVerse preview corpus. Run it on your own
+`triage.db` to reproduce the same breakdown.
+
+On this corpus (132,576 clips):
 
 | | clips | share |
 |---|---|---|
-| **decided FAIL** by a cheap layer (mostly no hands visible) | 21,786 | 16.4% |
-| **cleared PASS** through L0–L3, never judged | 85,025 | 64.1% |
+| **decided FAIL** by a cheap layer (mostly missing hands or looking away) | 44,209 | 33.3% |
+| **cleared PASS** through the cheap layers, never judged | 62,602 | 47.2% |
 | **deferred to the judge** (genuinely uncertain) | 25,765 | 19.4% |
 
 The cheap layers resolve **~80% of the corpus on their own**. The judge sees only the ~1-in-5 they
 cannot call, which is **24% fewer judge calls than judging everything flagged**, before any calibration.
-On the clips we did judge, the cascade's confident calls agreed with the judge **84% of the time**. The
-uncertain band is dominated by one signal: hand visibility. Calibrating its thresholds against judge
+On the clips we judged, the cascade's confident calls agreed with the judge **84% of the time**. The
+deferred band is dominated by one signal: hand visibility. Calibrating its thresholds against judge
 labels (`eval.py`) is where the judge bill drops further.
 
 Each cheap layer runs only on what the layer below cleared as GOOD, and returns **bad / good / unsure**
@@ -66,6 +69,7 @@ export LADDER_DATA=/path/with/space       # where the mp4s live / will download 
 ./ladder.py run                           # climb L0..L3 over everything (resumable, versioned)
 ./ladder.py judge --sample 200            # L4: Claude grades suspects + a clean sample
 ./ladder.py status                        # per-level progress + PASS/BDLN/FAIL counts
+./ladder.py funnel                        # measured FAIL / cleared / deferred breakdown
 ./ladder.py serve                         # http://127.0.0.1:8123  (live viewer)
 ./ladder.py bad                           # export the silt list
 ```
@@ -104,7 +108,7 @@ export LADDER_DATA=/path/with/space       # where the mp4s live / will download 
 ```
 ladder.py        CLI entry (climb your way to cleaner data)
 panlib.py        store + keyframe cache + the ladder (STAGES) + rubric loader + judge
-pan.py           orchestrator: catalog / run / judge / verdict / status / bad
+pan.py           orchestrator: catalog / run / judge / verdict / status / funnel / bad
 serve.py         the web viewer (SQLite -> SPA, presigned-ready)
 eval.py          score levels vs the judge; compare versions
 download.py      EgoVerse downloader (uses the public creds)
