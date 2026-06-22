@@ -40,7 +40,7 @@ up. Unsure defers to the judge.
 
 | Lvl | Checks | Tool | Speed | Decides |
 |----|--------|------|-------|--------|
-| **L0 meta** | corrupt / empty | ffprobe | ~1000/s | FAIL hard silt, else pass up |
+| **L0 meta** | corrupt / empty | ffprobe | ~1000/s | FAIL broken files, else pass up |
 | **L1 cv** | camera blocked · blur · frozen | luma · Laplacian · motion | ~16/s | FAIL / pass / defer |
 | **L2 geometry** | hands visible? | MediaPipe | ~15/s | FAIL / pass / defer |
 | **L3 semantic** | workspace visible · looking away? · phone? | SigLIP + YOLO | ~1–3/s | FAIL / pass / defer |
