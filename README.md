@@ -8,23 +8,43 @@
   ╩═╝╩ ╩═╩╝═╩╝╚═╝╩╚═      cheap & broad at the base, costly & precise at the top
 ```
 
-A cheapest-first pipeline for triaging egocentric manipulation video (e.g. [EgoVerse](https://github.com/GaTech-RL2/EgoVerse))
-into **PASS / BORDERLINE / FAIL**. Cheap CV proposes suspects; an LLM judge disposes — grading each
-clip against a **capture-quality rubric**. Built for one box + a pile of video; resumable, versioned,
-and watchable in a live web viewer.
+A **confidence cascade** for triaging egocentric manipulation video (e.g. [EgoVerse](https://github.com/GaTech-RL2/EgoVerse))
+into **PASS / BORDERLINE / FAIL**. Human headcam video is cheap to collect and mostly unusable —
+blocked lens, no hands in frame, looking away, phone in hand. The bottleneck isn't collection, it's
+curation, and judging 100k clips with an LLM is too slow and too expensive.
 
-## Why a ladder
-Judging 100k+ clips with an LLM is too slow/expensive. So you **climb**: the cheap, broad checks sit
-at the bottom and run on *everything*; each rung up costs ~10× more but runs on ~10× fewer clips —
-only what the rung below passed. By the time you reach the LLM judge at the top, it sees just ~1–2%.
+So the cheap signals don't just *flag*. Each one **decides what it's confident about and defers the
+rest**: metadata, appearance, hand geometry, and scene semantics resolve the clear cases; the LLM
+judge only grades the uncertain residue, against a **capture-quality rubric it shares with the cheap
+layers**. Keyframes are decoded once and reused by every layer, so the disk — the real bottleneck on a
+USB SSD — is paid once, not per model. Resumable, versioned, watchable in a live web viewer.
 
-| Lvl | Checks | Tool | Speed | Action |
+## The funnel, measured
+On the EgoVerse preview corpus (**132,576 clips**), replaying the cascade over the cheap-layer scores:
+
+| | clips | share |
+|---|---|---|
+| **decided FAIL** by a cheap layer (mostly no hands visible) | 21,786 | 16.4% |
+| **cleared PASS** through L0–L3, never judged | 85,025 | 64.1% |
+| **deferred to the judge** — genuinely uncertain | 25,765 | 19.4% |
+
+The cheap layers resolve **~80% of the corpus on their own**; the judge sees only the ~1-in-5 it
+can't call — **24% fewer judge calls than judging everything flagged**, before any calibration. On the
+clips we did judge, the cascade's confident calls agreed with the judge **84% of the time**. The
+uncertain band is dominated by a single signal (hand visibility); calibrating its thresholds against
+judge labels (`eval.py`) is where the judge bill drops further.
+
+Each cheap layer runs only on what the layer below cleared as GOOD, and returns **bad / good / unsure**
+(two thresholds bracketing an uncertainty band). Confident-bad fails and stops; confident-good flows
+up; unsure defers to the judge.
+
+| Lvl | Checks | Tool | Speed | Decides |
 |----|--------|------|-------|--------|
-| **L0 meta** | corrupt / empty | ffprobe | ~1000/s | KILL hard silt |
-| **L1 cv** | camera blocked · blur · frozen | luma · Laplacian · motion | ~16/s | KILL/FLAG |
-| **L2 geometry** | hands visible? | MediaPipe | ~15/s | FLAG |
-| **L3 semantic** | workspace visible · looking away? · phone? | SigLIP + YOLO | ~1–3/s | FLAG |
-| **L4 JUDGE** | the full rubric, from keyframes | Claude (`claude -p`) | ~0.1/s | **PASS/BDLN/FAIL** |
+| **L0 meta** | corrupt / empty | ffprobe | ~1000/s | FAIL hard silt, else pass up |
+| **L1 cv** | camera blocked · blur · frozen | luma · Laplacian · motion | ~16/s | FAIL / pass / defer |
+| **L2 geometry** | hands visible? | MediaPipe | ~15/s | FAIL / pass / defer |
+| **L3 semantic** | workspace visible · looking away? · phone? | SigLIP + YOLO | ~1–3/s | FAIL / pass / defer |
+| **L4 JUDGE** | the full rubric, from keyframes — *on the uncertain residue only* | Claude (`claude -p`) | ~0.1/s | **PASS/BDLN/FAIL** |
 
 ## The rubric (task-agnostic capture quality)
 Not "did they do the task" — **"is this a usable recording at all,"** for any manipulation task.
@@ -69,8 +89,9 @@ export LADDER_DATA=/path/with/space       # where the mp4s live / will download 
   detector never re-hits disk. Decode (USB-SSD) is the real bottleneck, not the models.
 - **One source of truth** — everything lands in `triage.db` (SQLite). Resumable (skips done),
   **versioned** (tune a detector → new rows, old kept), so you can measure if a change improved.
-- **The judge is the authority** — cheap levels flag; `ladder eval` scores each level's flags against
-  the judge so you can see which levels over- or under-flag, tracked over time.
+- **The judge calibrates the layers** — cheap layers decide what they're confident about and defer the
+  rest; `ladder eval` scores each layer's confident calls against the judge, so you can see where a
+  layer is reliable and tighten its uncertainty band (fewer deferrals, same accuracy), tracked over time.
 
 ## Config
 - `LADDER_DATA` — data root (videos, `triage.db`, caches). Default `~/ladder-data`.
