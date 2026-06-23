@@ -16,7 +16,8 @@ import gzip, os, shutil, subprocess, sys, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                      # repo root: serve.py / core.py live here
-DB_URL = "https://pub-f11ddc244a7e4b4fab8a4310ce928d1b.r2.dev/ladder/triage.db.gz"
+BUNDLED = os.path.join(HERE, "triage.db.gz")      # ships in the repo (~35MB)
+DB_URL = "https://pub-f11ddc244a7e4b4fab8a4310ce928d1b.r2.dev/ladder/triage.db.gz"  # fallback
 DATA = os.environ.get("LADDER_DATA") or os.path.join(HERE, "data")
 PORT = os.environ.get("PORT", "8123")
 
@@ -24,17 +25,21 @@ def fetch_db():
     os.makedirs(DATA, exist_ok=True)
     db = os.path.join(DATA, "triage.db")
     if os.path.exists(db) and os.path.getsize(db) > 1_000_000:
-        print(f"[demo] triage.db present ({os.path.getsize(db)//1_000_000}MB), skipping download")
+        print(f"[demo] triage.db present ({os.path.getsize(db)//1_000_000}MB), skipping")
         return
-    gz = db + ".gz"
-    print(f"[demo] downloading triage.db.gz from R2 ...")
-    req = urllib.request.Request(DB_URL, headers={"User-Agent": "ladder-demo"})  # r2.dev 403s default UA
-    with urllib.request.urlopen(req, timeout=60) as r, open(gz, "wb") as o:
-        shutil.copyfileobj(r, o, 1 << 20)
-    print("[demo] decompressing ...")
-    with gzip.open(gz, "rb") as f, open(db, "wb") as o:
+    src, tmp = BUNDLED, None
+    if not os.path.exists(src):                   # not bundled -> pull from R2
+        print("[demo] downloading triage.db.gz from R2 ...")
+        req = urllib.request.Request(DB_URL, headers={"User-Agent": "ladder-demo"})  # r2.dev 403s default UA
+        tmp = db + ".gz"
+        with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as o:
+            shutil.copyfileobj(r, o, 1 << 20)
+        src = tmp
+    print("[demo] decompressing triage.db.gz ...")
+    with gzip.open(src, "rb") as f, open(db, "wb") as o:
         shutil.copyfileobj(f, o, 1 << 20)
-    os.remove(gz)
+    if tmp:
+        os.remove(tmp)
     print(f"[demo] triage.db ready ({os.path.getsize(db)//1_000_000}MB)")
 
 def main():
