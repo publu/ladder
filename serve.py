@@ -14,6 +14,17 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8123
 THUMBS = f"{P.SSD}/thumbs"; os.makedirs(THUMBS, exist_ok=True)
 VC = {"PASS": "#39d353", "BDLN": "#e0b341", "FAIL": "#e0683b"}
 
+def _is_snapshot(con):
+    """A published db (e.g. the demo) was produced by an older code revision, so its rows live under
+    versions that no longer match STAGES. Detect that and switch episode()/stats() to read the
+    most-populated version per stage instead of the active one."""
+    for s in ("cheap_cv", "geometry", "objects"):
+        if con.execute("SELECT COUNT(*) FROM results WHERE stage=? AND version=?",
+                       (s, P.STAGES[s]["version"])).fetchone()[0]:
+            return False   # active-version rows exist -> this is a live local db
+    return bool(con.execute("SELECT 1 FROM results WHERE stage='cheap_cv' LIMIT 1").fetchone())
+SNAPSHOT = _is_snapshot(P.db())
+
 def episodes(emb=None, verdict=None, limit=400):
     con = P.db()
     q = ("SELECT v.path, v.hash, v.embodiment, r.verdict_json FROM videos v "
@@ -33,17 +44,28 @@ def episodes(emb=None, verdict=None, limit=400):
     for r in rows: counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
     return {"rows": rows[:limit], "n": len(rows), "counts": counts, "embodiments": embs}
 
-def episode(h):
+def episode(h, snapshot=False):
     con = P.db()
     row = con.execute("SELECT path FROM videos WHERE hash=?", (h,)).fetchone()
     if not row: return {"err": "not found"}
     path = row[0]
-    tiers = {}  # active version per stage only (old-version rows lack the cascade decision)
+    tiers = {}
     for s in P.ORDER:
-        r = con.execute("SELECT verdict_json FROM results WHERE path=? AND stage=? AND version=?",
-                        (path, s, P.STAGES[s]["version"])).fetchone()
+        if snapshot:
+            # Published snapshots can come from an older code revision. Use the newest result that
+            # actually exists for this clip so its trace and timestamped hits remain inspectable.
+            r = con.execute(
+                "SELECT verdict_json FROM results WHERE path=? AND stage=? "
+                "ORDER BY ran_at DESC LIMIT 1", (path, s)
+            ).fetchone()
+        else:
+            r = con.execute("SELECT verdict_json FROM results WHERE path=? AND stage=? AND version=?",
+                            (path, s, P.STAGES[s]["version"])).fetchone()
         if r:
-            tiers[s] = json.loads(r[0])
+            v = json.loads(r[0])
+            if "decision" not in v and s != "vlm":
+                v["decision"] = P.decide(s, v)
+            tiers[s] = v
     ladder = []
     for name in P.ORDER:
         if name in tiers:
@@ -69,18 +91,39 @@ LABELS = {"meta": "corrupt / empty file", "cheap_cv": "camera blocked · blur ·
           "semantic": "workspace visible · looking away?", "vlm": "Claude grades the 5-item rubric"}
 
 _PREV = {}  # {stage: (done, ts)} between polls -> live rate
-def stats():
+def stats(snapshot=False):
     import time
     con = P.db()
     tot = con.execute("SELECT COUNT(*) FROM videos").fetchone()[0]
     now = time.time()
     out = []
     for s in P.ORDER:
-        ver = P.STAGES[s]["version"]   # only the ACTIVE version — ignore obsolete old-version rows
+        ver = P.STAGES[s]["version"]   # active version for a live local pipeline
+        if snapshot:
+            # A published DB may have been produced by an older code revision. Show the version
+            # that actually contains the completed run instead of reporting zero active-version rows.
+            row = con.execute(
+                "SELECT version FROM results WHERE stage=? GROUP BY version "
+                "ORDER BY COUNT(*) DESC LIMIT 1", (s,)
+            ).fetchone()
+            if row:
+                ver = row[0]
         done = con.execute("SELECT COUNT(*) FROM results WHERE stage=? AND version=?", (s, ver)).fetchone()[0]
         # cascade: a layer either DECIDES bad (FAIL, stop) or ESCALATES unsure (-> judge); good flows up
-        bad = con.execute("SELECT COUNT(*) FROM results WHERE stage=? AND version=? AND json_extract(verdict_json,'$.decision')='bad'", (s, ver)).fetchone()[0]
+        bad_where = ("(json_extract(verdict_json,'$.decision')='bad' OR "
+                     "(json_extract(verdict_json,'$.decision') IS NULL AND "
+                     "json_extract(verdict_json,'$.bad')=1))")
+        bad = con.execute(
+            f"SELECT COUNT(*) FROM results WHERE stage=? AND version=? AND {bad_where}",
+            (s, ver)
+        ).fetchone()[0]
         unsure = con.execute("SELECT COUNT(*) FROM results WHERE stage=? AND version=? AND json_extract(verdict_json,'$.decision')='unsure'", (s, ver)).fetchone()[0]
+        judged = con.execute(
+            "SELECT COUNT(*) FROM results r WHERE r.stage=? AND r.version=? AND "
+            f"{bad_where} AND EXISTS "
+            "(SELECT 1 FROM results j WHERE j.path=r.path AND j.stage='vlm')",
+            (s, ver)
+        ).fetchone()[0] if snapshot and s != "vlm" else 0
         last = con.execute("SELECT MAX(ran_at) FROM results WHERE stage=? AND version=?", (s, ver)).fetchone()[0]
         active = bool(last and now - last < 20)          # wrote in last 20s = running now
         rate, eta = 0.0, None
@@ -90,21 +133,28 @@ def stats():
             eta = round((tot - done) / rate) if rate > 0.05 else None
         if s not in _PREV or now - pt > 15:                  # seed on first sight, refresh every ~15s
             _PREV[s] = (done, now)
-        status = "running" if active else ("done" if done >= tot and tot else ("idle" if done else "waiting"))
+        status = ("done" if snapshot else
+                  ("running" if active else
+                   ("done" if done >= tot and tot else ("idle" if done else "waiting"))))
         prec = None
         if s != "vlm":   # confirm-rate via SQL join (fast) — of this stage's flags, how many vlm confirmed
             jd, cf = con.execute(
-                "SELECT COUNT(*), COALESCE(SUM(CASE WHEN json_extract(j.verdict_json,'$.bad')=1 THEN 1 ELSE 0 END),0) "
-                "FROM results r JOIN results j ON j.path=r.path AND j.stage='vlm' "
-                "WHERE r.stage=? AND r.version=? AND json_extract(r.verdict_json,'$.bad')=1", (s, ver)).fetchone()
+                "SELECT COUNT(*), COALESCE(SUM(CASE WHEN EXISTS "
+                "(SELECT 1 FROM results j2 WHERE j2.path=r.path AND j2.stage='vlm' "
+                "AND (json_extract(j2.verdict_json,'$.bad')=1 OR "
+                "json_extract(j2.verdict_json,'$.verdict')='FAIL')) THEN 1 ELSE 0 END),0) "
+                "FROM results r WHERE r.stage=? AND r.version=? AND "
+                f"{bad_where} AND EXISTS "
+                "(SELECT 1 FROM results j WHERE j.path=r.path AND j.stage='vlm')", (s, ver)).fetchone()
             prec = {"judged": jd, "confirmed": cf, "rate": round(cf/jd, 2) if jd else None}
         out.append({"level": P.STAGES[s]["level"], "tier": s, "label": LABELS.get(s, ""),
                     "done": done, "total": tot, "pct": round(100*done/max(tot, 1), 1),
-                    "bad": bad, "unsure": unsure, "escal": round(100*unsure/max(done, 1), 1),
+                    "bad": bad, "unsure": unsure, "judged": judged,
+                    "escal": round(100*unsure/max(done, 1), 1),
                     "status": status, "rate": round(rate, 1), "eta": eta, "perf": prec})
     vd = {r[0]: r[1] for r in con.execute(
         "SELECT json_extract(verdict_json,'$.verdict'), COUNT(*) FROM results WHERE stage='verdict' GROUP BY 1")}
-    return {"total": tot, "tiers": out, "verdicts": vd}
+    return {"total": tot, "tiers": out, "verdicts": vd, "snapshot": snapshot}
 
 def thumb(h):
     jpg = f"{THUMBS}/{h}.jpg"
@@ -216,9 +266,9 @@ class H(http.server.SimpleHTTPRequestHandler):
         if u.path == "/": return self._send(SPA, "text/html")
         if u.path == "/tune": return self._send(TUNE, "text/html")
         if u.path == "/api/tune": return self._send(json.dumps(tune_init()))
-        if u.path == "/api/stats": return self._send(json.dumps(stats()))
+        if u.path == "/api/stats": return self._send(json.dumps(stats(SNAPSHOT)))
         if u.path == "/api/episodes": return self._send(json.dumps(episodes(g("emb"), g("verdict"))))
-        if u.path == "/api/episode": return self._send(json.dumps(episode(g("h"))))
+        if u.path == "/api/episode": return self._send(json.dumps(episode(g("h"), SNAPSHOT)))
         if u.path.startswith("/thumb/"): return self._send(thumb(u.path[7:]), "image/jpeg")
         if u.path.startswith("/vid/"): return self._vid(unquote(u.path[5:]))
         return self._send("not found", "text/plain", 404)
@@ -296,7 +346,9 @@ video{width:100%;background:#000;border-radius:6px;border:1px solid var(--ln)}
 .box{background:var(--panel);border:1px solid var(--ln);border-radius:6px;padding:11px;margin-top:8px}
 .note{color:#9fb596;font-size:12px} .kv{display:flex;justify-content:space-between;border-bottom:1px solid var(--ln);padding:5px 0;font-size:11px}
 .kv .k{color:var(--dim)} .tier{font-size:10px;padding:1px 6px;border-radius:3px;border:1px solid var(--ln);margin-right:4px}
-.lev{background:var(--panel);border:1px solid var(--ln);border-radius:5px;padding:7px 9px;margin-bottom:6px}
+.pipeline{margin-top:20px;border-top:1px solid var(--ln);padding-top:2px}
+#live{display:grid;grid-template-columns:repeat(6,minmax(170px,1fr));gap:7px;overflow-x:auto;padding-bottom:8px}
+.lev{background:var(--panel);border:1px solid var(--ln);border-radius:5px;padding:8px 9px;min-width:170px}
 .lev .top{display:flex;justify-content:space-between;align-items:center}
 .lev .lv{color:var(--g);font-weight:600;font-size:11px} .lev .chk{color:var(--dim);font-size:10px;margin:2px 0 5px}
 .lev .st{font-size:10px} .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin:0 3px}
@@ -308,7 +360,6 @@ video{width:100%;background:#000;border-radius:6px;border:1px solid var(--ln)}
   <h1>◆ PANRIG</h1><div class=sub id=summary>loading…</div>
   <div class=lbl>dataset</div><select id=emb onchange=loadEps()></select>
   <div class=lbl>filter</div><select id=vf onchange=loadEps()><option value="">all</option><option>FAIL</option><option>BDLN</option><option>PASS</option></select>
-  <div class=lbl>live ladder <span style=color:var(--dim);text-transform:none>· <span class=dot style=background:var(--g)></span>running <span class=dot style=background:var(--dim)></span>idle ✓done</span></div><div id=live></div>
   <div class=lbl id=eplbl>episodes</div><div id=eps></div>
 </div>
 <div id=center class=col>
@@ -319,6 +370,10 @@ video{width:100%;background:#000;border-radius:6px;border:1px solid var(--ln)}
   <div id=tl><div id=play></div></div>
   <div class=lbl>silt timeline — click a marker to jump</div>
   <div class=actions id=acts></div>
+  <div class=pipeline>
+    <div class=lbl>ladder pipeline <span style=color:var(--dim);text-transform:none>· processing snapshot</span></div>
+    <div id=live></div>
+  </div>
 </div>
 <div id=right class=col>
   <div class=lbl>rubric assessment <span style=color:var(--dim)>· click a row to jump</span></div>
@@ -329,9 +384,16 @@ video{width:100%;background:#000;border-radius:6px;border:1px solid var(--ln)}
 </div>
 <script>
 let EP=null, DUR=1;
+const SESSION_ID=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+function sessionPayload(action){return JSON.stringify({action,session_id:SESSION_ID,url:location.href,referrer:document.referrer||'direct'});}
+function endSession(){navigator.sendBeacon('/api/visit',new Blob([sessionPayload('end')],{type:'application/json'}));}
+addEventListener('pagehide',endSession,{once:true});
 async function boot(){
+  fetch('/api/visit',{method:'POST',headers:{'content-type':'application/json'},body:sessionPayload('start'),keepalive:true}).catch(()=>{});
   let d=await (await fetch('/api/episodes')).json();
   let es=document.getElementById('emb'); es.innerHTML='<option value="">all datasets</option>'+d.embodiments.map(e=>'<option>'+e+'</option>').join('');
+  if(d.embodiments.includes('mecka')) es.value='mecka';
+  document.getElementById('vf').value='';
   loadEps(); live();
 }
 function fmt(n){return n.toLocaleString();}
@@ -346,12 +408,17 @@ async function live(){
     let conf=(t.perf&&t.perf.rate!=null)
       ? '<b>'+(t.perf.rate*100|0)+'%</b> judge-confirmed ('+t.perf.confirmed+'/'+t.perf.judged+')'
       : (t.tier=='vlm'?'<b>the judge</b>':'<span style=color:var(--dim)>no judged flags yet</span>');
+    let counts=d.snapshot
+      ? (t.tier=='vlm'
+          ? '<span>judged <b>'+fmt(t.done)+'</b> clips</span>'
+          : '<span>flagged <b style=color:var(--r)>'+fmt(t.bad)+'</b> · judged <b style=color:var(--a,#d9a441)>'+fmt(t.judged)+'</b></span>')
+      : (t.tier=='vlm'?'':'<span>FAIL <b style=color:var(--r)>'+fmt(t.bad)+'</b> · →judge <b style=color:var(--a,#d9a441)>'+fmt(t.unsure)+'</b> ('+t.escal+'%)</span>');
     return '<div class=lev><div class=top><span class=lv>'+t.level+' · '+t.tier+'</span>'+
       '<span class=st>'+dot+sttxt+'</span></div>'+
       '<div class=chk>'+t.label+'</div>'+
       '<div class=bar><i style=width:'+t.pct+'%></i></div>'+
       '<div class=nums><span>processed <b>'+fmt(t.done)+'</b> / '+fmt(t.total)+' ('+t.pct+'%)</span>'+
-        (t.tier=='vlm'?'':'<span>FAIL <b style=color:var(--r)>'+fmt(t.bad)+'</b> · →judge <b style=color:var(--a,#d9a441)>'+fmt(t.unsure)+'</b> ('+t.escal+'%)</span>')+'</div>'+
+        counts+'</div>'+
       '<div class=nums style=margin-top:2px><span>'+conf+'</span></div></div>';
   }).join('');
   let v=d.verdicts||{}; document.getElementById('summary').innerHTML=
@@ -362,8 +429,10 @@ async function loadEps(){
   let emb=document.getElementById('emb').value, vf=document.getElementById('vf').value;
   let d=await (await fetch('/api/episodes?emb='+emb+'&verdict='+vf)).json();
   document.getElementById('eplbl').textContent='episodes ('+d.n+')';
-  document.getElementById('eps').innerHTML=d.rows.map((r,i)=>
+  let eps=document.getElementById('eps');
+  eps.innerHTML=d.rows.map((r,i)=>
     '<div class=ep id=ep'+i+' onclick="openEp(\''+r.hash+'\',this)"><span class=n>'+r.emb+'/'+r.hash.slice(0,8)+'</span><span class="badge '+r.verdict+'">'+r.verdict+'</span></div>').join('');
+  if(d.rows.length) openEp(d.rows[0].hash,eps.firstElementChild);
 }
 async function openEp(h,el){
   document.querySelectorAll('.ep').forEach(e=>e.classList.remove('on')); if(el)el.classList.add('on');
