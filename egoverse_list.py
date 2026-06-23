@@ -70,6 +70,25 @@ def sigv4(method, url, region, service, key, secret, body=b"", query="", headers
     return req
 
 
+def presign_get(key, ak, sk, ep, bucket=BUCKET, expires=3600):
+    """SigV4 query-string presigned GET URL — the browser streams the object straight from R2 (no
+    proxy, native range/seek). Pure: pass cached creds so we don't re-hit Secrets Manager per request."""
+    from urllib.parse import urlparse, quote
+    host = urlparse(ep).netloc
+    now = datetime.datetime.now(datetime.timezone.utc)
+    amzdate = now.strftime("%Y%m%dT%H%M%SZ"); datestamp = now.strftime("%Y%m%d")
+    region, service = "auto", "s3"
+    scope = f"{datestamp}/{region}/{service}/aws4_request"
+    canon_path = "/" + bucket + "/" + quote(key, safe="/")
+    q = {"X-Amz-Algorithm": "AWS4-HMAC-SHA256", "X-Amz-Credential": f"{ak}/{scope}",
+         "X-Amz-Date": amzdate, "X-Amz-Expires": str(expires), "X-Amz-SignedHeaders": "host"}
+    canon_q = "&".join(f"{quote(k, safe='')}={quote(v, safe='')}" for k, v in sorted(q.items()))
+    canon_req = "\n".join(["GET", canon_path, canon_q, f"host:{host}\n", "host", "UNSIGNED-PAYLOAD"])
+    to_sign = "\n".join(["AWS4-HMAC-SHA256", amzdate, scope, hashlib.sha256(canon_req.encode()).hexdigest()])
+    sig = hmac.new(_signing_key(sk, datestamp, region, service), to_sign.encode(), hashlib.sha256).hexdigest()
+    return f"{ep}/{bucket}/{quote(key, safe='/')}?{canon_q}&X-Amz-Signature={sig}"
+
+
 def get_r2_creds():
     if not (AWS_KEY and AWS_SECRET):
         sys.exit("EgoVerse keys not set. Get the public keys from https://github.com/GaTech-RL2/EgoVerse "

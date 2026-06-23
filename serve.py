@@ -256,34 +256,15 @@ class H(http.server.SimpleHTTPRequestHandler):
             rem -= len(c)
 
     def _vid_r2(self, key):
-        # proxy a (ranged) GET from the EgoVerse R2 bucket, signed with the public read keys. Creds
-        # stay server-side; the browser just sees localhost. The triage.db path IS the R2 key.
-        import urllib.request
+        # redirect the browser to a presigned EgoVerse R2 URL — it streams straight from R2 (native
+        # range/seek), no bytes through this process. The triage.db path IS the R2 key.
         try:
             r2 = _r2()
         except SystemExit as e:
             return self._send(f"R2 creds not set: {e}\nexport EGOVERSE_AWS_KEY=... EGOVERSE_AWS_SECRET=...",
                               "text/plain", 503)
-        E = r2["E"]; url = f"{r2['ep']}/{E.BUCKET}/{key}"
-        rng = self.headers.get("Range")
-        req = E.sigv4("GET", url, "auto", "s3", r2["ak"], r2["sk"],
-                      headers={"Range": rng} if rng else None)
-        try:
-            up = urllib.request.urlopen(req, timeout=30)
-        except urllib.error.HTTPError as e:
-            return self._send(f"R2 {e.code} for {key}", "text/plain", e.code if e.code in (403, 404) else 502)
-        except Exception as e:
-            return self._send(f"R2 error: {e}", "text/plain", 502)
-        self.send_response(up.status)
-        for hdr in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
-            if up.headers.get(hdr): self.send_header(hdr, up.headers[hdr])
-        if not up.headers.get("Content-Type"): self.send_header("Content-Type", "video/mp4")
-        self.end_headers()
-        while True:
-            c = up.read(65536)
-            if not c: break
-            try: self.wfile.write(c)
-            except BrokenPipeError: break
+        url = r2["E"].presign_get(key, r2["ak"], r2["sk"], r2["ep"])
+        self.send_response(302); self.send_header("Location", url); self.end_headers()
 
     def log_message(self, *a): pass
 

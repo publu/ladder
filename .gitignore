@@ -28,3 +28,6 @@ venv/
 
 # tuned bands live with the data, not the repo
 bands.json
+
+# demo: downloaded db lives here, not in git
+demo/data/
