@@ -191,6 +191,13 @@ def _cheap_cv(path_rel):
 
 _M = {}  # per-process lazy model singletons (loaded once per worker, reused across videos)
 
+def _device():
+    """cuda > mps > cpu. Was hard-coded 'mps' (Mac-only); auto-detect so a GPU box uses the GPU."""
+    import torch
+    if torch.cuda.is_available(): return "cuda"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available(): return "mps"
+    return "cpu"
+
 HAND_MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
                   "hand_landmarker/float16/1/hand_landmarker.task")
 def _hand_model():
@@ -237,10 +244,11 @@ def _objects(path_rel):
         from ultralytics import YOLO
         try: from ultralytics.utils.nms import non_max_suppression as nms
         except ImportError: from ultralytics.utils.ops import non_max_suppression as nms
-        _M["yolo"] = (YOLO("yolo11n.pt").model.to("mps").eval().half(), nms)  # ultralytics auto-downloads
-    net, nms = _M["yolo"]
+        dev = _device()
+        _M["yolo"] = (YOLO("yolo11n.pt").model.to(dev).eval().half(), nms, dev)  # ultralytics auto-downloads
+    net, nms, dev = _M["yolo"]
     arr = np.stack([np.ascontiguousarray(f) for f in frames])
-    x = torch.from_numpy(arr).to("mps").permute(0, 3, 1, 2).float().div_(255)
+    x = torch.from_numpy(arr).to(dev).permute(0, 3, 1, 2).float().div_(255)
     x = F.interpolate(x, size=(256, 256), mode="bilinear", align_corners=False).half()
     best, hits = 0.0, []
     with torch.no_grad():
@@ -262,40 +270,82 @@ PROMPTS = {  # TASK-AGNOSTIC capture-quality scene groups for SigLIP zero-shot (
     "no_workspace": ["a blank wall", "an empty floor", "a room with no table or work surface in view"],
 }
 
-def _semantic(path_rel):
-    """Rubric match: SigLIP zero-shot argmax per keyframe -> not_folding/looking_away/no_clothes."""
-    import numpy as np, cv2, torch
-    frames, times = get_frames(path_rel)
-    if not frames:
-        return {"decision": "bad", "bad": True, "reasons": ["empty"], "hits": []}
+def _siglip():
+    """Lazy SigLIP singleton (model + preprocess + cached text embeddings + device). Shared by the
+    per-clip and the batched path so they stay bit-identical."""
+    import torch, cv2
     if "siglip" not in _M:
         import open_clip
+        dev = _device()
         m, _, pre = open_clip.create_model_and_transforms("ViT-B-16-SigLIP", pretrained="webli")
         tok = open_clip.get_tokenizer("ViT-B-16-SigLIP")
-        m = m.to("mps").eval()
+        m = m.to(dev).eval()
         groups = list(PROMPTS); flat = [p for g in groups for p in PROMPTS[g]]
         with torch.no_grad():
-            txt = m.encode_text(tok(flat).to("mps")); txt /= txt.norm(dim=-1, keepdim=True)
+            txt = m.encode_text(tok(flat).to(dev)); txt /= txt.norm(dim=-1, keepdim=True)
         gidx = [g for g, ps in PROMPTS.items() for _ in ps]
-        _M["siglip"] = (m, pre, txt, gidx, groups, cv2)
-    m, pre, txt, gidx, groups, cv2 = _M["siglip"]
-    from PIL import Image
-    batch = torch.stack([pre(Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))) for f in frames]).to("mps")
-    with torch.no_grad():
-        v = m.encode_image(batch); v /= v.norm(dim=-1, keepdim=True)
-        sim = (v @ txt.T).softmax(-1).cpu().numpy()
-    win = [gidx[i] for i in sim.argmax(1)]  # winning group per frame
+        _M["siglip"] = (m, pre, txt, gidx, groups, cv2, dev)
+    return _M["siglip"]
+
+def _semantic_verdict(sim, times, gidx, groups):
+    """sim: (n_frames, n_prompts) softmax sims for ONE clip -> the stored verdict dict (unchanged)."""
     from collections import Counter
+    win = [gidx[i] for i in sim.argmax(1)]  # winning group per frame
     c = Counter(win); n = len(win)
-    decs = {}
-    for g in ("looking_away", "no_workspace"):
-        f = c.get(g, 0) / n
-        decs[g] = band(f, g)
+    decs = {g: band(c.get(g, 0) / n, g) for g in ("looking_away", "no_workspace")}
     decision = _worst(list(decs.values()))
     reasons = [g for g, d in decs.items() if d != "good"]
     hits = [{"reason": win[i], "t": round(times[i], 1)} for i in range(n) if win[i] in reasons]
     return {"decision": decision, "bad": decision != "good", "reasons": reasons, "hits": hits[:30],
             "frac": {g: round(c.get(g, 0) / n, 2) for g in groups}}
+
+def _semantic(path_rel):
+    """Rubric match: SigLIP zero-shot argmax per keyframe -> looking_away / no_workspace. Per-clip
+    path (kept for compatibility); the run loop uses _semantic_batch, which is far faster."""
+    import torch
+    from PIL import Image
+    frames, times = get_frames(path_rel)
+    if not frames:
+        return {"decision": "bad", "bad": True, "reasons": ["empty"], "hits": []}
+    m, pre, txt, gidx, groups, cv2, dev = _siglip()
+    batch = torch.stack([pre(Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))) for f in frames]).to(dev)
+    with torch.no_grad():
+        v = m.encode_image(batch); v /= v.norm(dim=-1, keepdim=True)
+        sim = (v @ txt.T).softmax(-1).cpu().numpy()
+    return _semantic_verdict(sim, times, gidx, groups)
+
+def _semantic_batch(paths):
+    """THE 2/s fix: pool keyframes from MANY clips into one big GPU batch instead of a batch-6 forward
+    per clip. Decode I/O is threaded (shares the npz cache); inference runs in GPU-sized chunks. Returns
+    {path: verdict}, bit-identical to _semantic per clip. GPU chunk size = $LADDER_GPU_BATCH (default 256)."""
+    import numpy as np, torch
+    from PIL import Image
+    from concurrent.futures import ThreadPoolExecutor
+    gpu_chunk = int(os.environ.get("LADDER_GPU_BATCH", "256"))
+    m, pre, txt, gidx, groups, cv2, dev = _siglip()
+    with ThreadPoolExecutor(max_workers=8) as ex:   # decode is I/O-bound -> overlap it
+        loaded = list(ex.map(get_frames, paths))
+    out, flat, owner = {}, [], []                   # owner: (path, times, n_frames) preserving order
+    for p, (frames, times) in zip(paths, loaded):
+        if not frames:
+            out[p] = {"decision": "bad", "bad": True, "reasons": ["empty"], "hits": []}
+            owner.append((p, times, 0)); continue
+        for f in frames:
+            flat.append(pre(Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))))
+        owner.append((p, times, len(frames)))
+    if flat:
+        sims = []
+        with torch.no_grad():
+            for i in range(0, len(flat), gpu_chunk):
+                b = torch.stack(flat[i:i + gpu_chunk]).to(dev)
+                v = m.encode_image(b); v /= v.norm(dim=-1, keepdim=True)
+                sims.append((v @ txt.T).softmax(-1).cpu().numpy())
+        sim = np.concatenate(sims, 0)
+    row = 0
+    for p, times, n in owner:
+        if n == 0: continue
+        out[p] = _semantic_verdict(sim[row:row + n], times, gidx, groups); row += n
+    return out
 
 import functools
 @functools.lru_cache(maxsize=4)
@@ -432,6 +482,7 @@ STAGES = {
     "objects":  {"level": "L3", "version": "c1",  "fn": _objects,  "workers": 3,  "gate": good_from("geometry"),
                  "trigger": "bad: phone>.6. good: <.35. else unsure->judge"},
     "semantic": {"level": "L3", "version": "c1",  "fn": _semantic, "workers": 3,  "gate": good_from("objects"),
+                 "batch_fn": _semantic_batch, "bsize": 256,  # pooled GPU batching; runs single-process
                  "trigger": "bad: looking_away/no_workspace>.7. good: <.3. else unsure->judge"},
     "vlm":      {"level": "L4", "version": "cap", "fn": _vlm,      "workers": 4,  "gate": UNSURE_ANY,
                  "trigger": "JUDGE the unsure residue: grade rubric -> PASS/BDLN/FAIL"},

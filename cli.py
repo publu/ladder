@@ -21,8 +21,29 @@ def _run_stage(con, name, limit=0):
     ver, fn, workers = st["version"], st["fn"], st["workers"]
     todo = P.undone(con, name, ver, st.get("gate"))
     if limit: todo = todo[:limit]
-    print(f"[run] {name}/{ver}: {len(todo)} to do ({workers} workers)", file=sys.stderr)
+    bfn = st.get("batch_fn")
+    print(f"[run] {name}/{ver}: {len(todo)} to do "
+          f"({'batched, bsize='+str(st.get('bsize',256)) if bfn else str(workers)+' workers'})", file=sys.stderr)
     if not todo:
+        return
+    # GPU stages: pool keyframes across many clips into one big batch (single process), not a tiny
+    # per-clip batch under a process pool. This is the 2/s -> hundreds/s fix.
+    if bfn:
+        bsize = st.get("bsize", 256)
+        t0, n, nbad = time.time(), 0, 0
+        for i in range(0, len(todo), bsize):
+            chunk = todo[i:i+bsize]
+            try:
+                res = bfn(chunk)
+            except Exception as e:
+                res = {p: {"bad": True, "reasons": ["error"], "err": str(e)[:80]} for p in chunk}
+            rows = [(p, res.get(p, {"bad": True, "reasons": ["error"]})) for p in chunk]
+            P.write_results(con, name, ver, rows)
+            n += len(rows); nbad += sum(bool(v.get("bad")) for _, v in rows)
+            print(f"  {n}/{len(todo)}  {nbad} bad  {n/(time.time()-t0):.0f} vid/s", file=sys.stderr)
+        con.execute("INSERT INTO runs(stage,version,started,finished,n_done) VALUES(?,?,?,?,?)",
+                    (name, ver, t0, time.time(), n)); con.commit()
+        print(f"[run] {name}/{ver} done (batched): {n} processed, {nbad} bad, {time.time()-t0:.0f}s", file=sys.stderr)
         return
     t0, n, nbad, batch = time.time(), 0, 0, []
     with ProcessPoolExecutor(max_workers=workers) as ex:
