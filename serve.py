@@ -121,7 +121,9 @@ def thumb(h):
                 "-frames:v", "1", "-vf", "scale=240:180", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
                 capture_output=True).stdout
             if len(raw) >= 240*180*3: frame = np.frombuffer(raw[:240*180*3], np.uint8).reshape(180, 240, 3)
-    if frame is None: return b""
+    if frame is None:   # no local frame/cache (db-only deploy) -> gray placeholder, don't cache it
+        import numpy as np
+        return cv2.imencode(".jpg", np.full((180, 240, 3), 28, np.uint8))[1].tobytes()
     data = cv2.imencode(".jpg", frame)[1].tobytes(); open(jpg, "wb").write(data); return data
 
 # ---- tuner: hand-tune the cascade bands live over stored scores (no re-decode, no model re-run) ----
@@ -191,6 +193,16 @@ def tune_preview(bands):
     f["agreement"] = round(100*agree/conf, 1) if conf else None
     return f
 
+_R2 = {}
+def _r2():
+    """Cache the EgoVerse R2 creds (public keys -> Secrets Manager -> R2). Raises SystemExit if the
+    EGOVERSE_AWS_KEY/SECRET env isn't set."""
+    if not _R2:
+        import egoverse_list as E
+        ak, sk, ep = E.get_r2_creds()
+        _R2.update(ak=ak, sk=sk, ep=ep, E=E)
+    return _R2
+
 class H(http.server.SimpleHTTPRequestHandler):
     def _send(self, body, ctype="application/json", code=200):
         if isinstance(body, str): body = body.encode()
@@ -208,7 +220,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         if u.path == "/api/episodes": return self._send(json.dumps(episodes(g("emb"), g("verdict"))))
         if u.path == "/api/episode": return self._send(json.dumps(episode(g("h"))))
         if u.path.startswith("/thumb/"): return self._send(thumb(u.path[7:]), "image/jpeg")
-        if u.path.startswith("/vid/"): return self._vid(f"{P.SSD}/{unquote(u.path[5:])}")
+        if u.path.startswith("/vid/"): return self._vid(unquote(u.path[5:]))
         return self._send("not found", "text/plain", 404)
 
     def do_POST(self):
@@ -219,8 +231,12 @@ class H(http.server.SimpleHTTPRequestHandler):
         if u.path == "/api/tune/save":    return self._send(json.dumps({"saved": P.save_bands(_bandsd(body))}))
         return self._send("not found", "text/plain", 404)
 
-    def _vid(self, path):
-        if not os.path.isfile(path): return self._send("no", "text/plain", 404)
+    def _vid(self, key):
+        # serve the clip from local disk if present, else stream it from the EgoVerse R2 bucket.
+        # this is what lets a viewer run with ONLY triage.db: videos come from the public bucket.
+        local = f"{P.SSD}/{key}"
+        if not os.path.isfile(local): return self._vid_r2(key)
+        path = local
         size = os.path.getsize(path); rng = self.headers.get("Range"); f = open(path, "rb")
         if not rng:
             self.send_response(200); self.send_header("Content-Type", "video/mp4")
@@ -238,6 +254,36 @@ class H(http.server.SimpleHTTPRequestHandler):
             try: self.wfile.write(c)
             except BrokenPipeError: break
             rem -= len(c)
+
+    def _vid_r2(self, key):
+        # proxy a (ranged) GET from the EgoVerse R2 bucket, signed with the public read keys. Creds
+        # stay server-side; the browser just sees localhost. The triage.db path IS the R2 key.
+        import urllib.request
+        try:
+            r2 = _r2()
+        except SystemExit as e:
+            return self._send(f"R2 creds not set: {e}\nexport EGOVERSE_AWS_KEY=... EGOVERSE_AWS_SECRET=...",
+                              "text/plain", 503)
+        E = r2["E"]; url = f"{r2['ep']}/{E.BUCKET}/{key}"
+        rng = self.headers.get("Range")
+        req = E.sigv4("GET", url, "auto", "s3", r2["ak"], r2["sk"],
+                      headers={"Range": rng} if rng else None)
+        try:
+            up = urllib.request.urlopen(req, timeout=30)
+        except urllib.error.HTTPError as e:
+            return self._send(f"R2 {e.code} for {key}", "text/plain", e.code if e.code in (403, 404) else 502)
+        except Exception as e:
+            return self._send(f"R2 error: {e}", "text/plain", 502)
+        self.send_response(up.status)
+        for hdr in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+            if up.headers.get(hdr): self.send_header(hdr, up.headers[hdr])
+        if not up.headers.get("Content-Type"): self.send_header("Content-Type", "video/mp4")
+        self.end_headers()
+        while True:
+            c = up.read(65536)
+            if not c: break
+            try: self.wfile.write(c)
+            except BrokenPipeError: break
 
     def log_message(self, *a): pass
 
