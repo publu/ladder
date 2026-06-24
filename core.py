@@ -378,68 +378,91 @@ def get_frames_hires(path_rel, w=256, h=256):
     np.savez_compressed(npz, f=np.stack(frames), t=np.array(times, "f4"))
     return frames, times
 
-# distilled ViT-B/L recommended (NOT the 7B teacher). Weights are gated; override via env or point at
-# a local checkpoint. The exact hub entrypoint/return attr may need a one-line tweak per the DINOv3 API.
+# ---- encoder registry: add a model here and it's runnable as `LADDER_ENCODER=<name> ladder run --stage embed`.
+# Each entry: (flat list of BGR uint8 frames) -> normalized (N, D) np.float32. Per-encoder vectors land in
+# VEC_DIR/<name>/ and results are versioned by <name>, so multiple encoders run over the same corpus and stay
+# directly comparable (the DINOv3 vs SigLIP vs concat ablation = run two, diff the vectors). ----
+ACTIVE_ENCODER = os.environ.get("LADDER_ENCODER", "dinov3_vitb16")
 DINOV3_REPO = os.environ.get("DINOV3_REPO", "facebookresearch/dinov3")
-DINOV3_MODEL = os.environ.get("DINOV3_MODEL", "dinov3_vitb16")
 _IMAGENET_MEAN = (0.485, 0.456, 0.406)
 _IMAGENET_STD = (0.229, 0.224, 0.225)
 
-def _dinov3():
-    """Lazy DINOv3 singleton (model + device)."""
+def _dinov3(model_name):
+    """Lazy DINOv3 singleton per variant. Weights gated; may need weights=<local .pth> per the hub API."""
     import torch
-    if "dinov3" not in _M:
-        dev = _device()
-        m = torch.hub.load(DINOV3_REPO, DINOV3_MODEL)   # TODO: may need weights=<local .pth> for gated checkpoint
-        _M["dinov3"] = (m.to(dev).eval(), dev)
-    return _M["dinov3"]
+    key = f"dinov3:{model_name}"
+    if key not in _M:
+        m = torch.hub.load(DINOV3_REPO, model_name)        # TODO: may need weights=<local ckpt> for gated weights
+        _M[key] = (m.to(_device()).eval(), _device())
+    return _M[key]
 
-def _save_vector(path_rel, pooled, per_frame):
-    """Persist the clip embedding locally (npz). R2 batch-sync (tiktok 50k/file pattern) is a follow-up."""
-    import numpy as np
-    os.makedirs(VEC_DIR, exist_ok=True)
-    h_ = os.path.splitext(os.path.basename(path_rel))[0]
-    np.savez(f"{VEC_DIR}/{h_}.npz", pooled=pooled.astype("f4"), frames=per_frame.astype("f4"))
-
-def _embed_batch(paths):
-    """ADDITIVE stage: DINOv3 per-keyframe embeddings pooled per clip, batched across clips (same
-    pooling pattern as _semantic_batch). Writes the vector to VEC_DIR; returns a tiny marker so the
-    run is resumable. No decision."""
+def _enc_dinov3(frames_bgr, model_name="dinov3_vitb16"):
     import numpy as np, torch, cv2
-    from concurrent.futures import ThreadPoolExecutor
-    gpu_chunk = int(os.environ.get("LADDER_GPU_BATCH", "256"))
-    m, dev = _dinov3()
+    chunk = int(os.environ.get("LADDER_GPU_BATCH", "256"))
+    m, dev = _dinov3(model_name)
     mean = torch.tensor(_IMAGENET_MEAN, device=dev).view(1, 3, 1, 1)
     std = torch.tensor(_IMAGENET_STD, device=dev).view(1, 3, 1, 1)
+    tens = [torch.from_numpy(np.ascontiguousarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))).permute(2, 0, 1)
+            for f in frames_bgr]
+    outc = []
+    with torch.no_grad():
+        for i in range(0, len(tens), chunk):
+            b = torch.stack(tens[i:i + chunk]).to(dev).float().div_(255); b = (b - mean) / std
+            feat = m(b)
+            if isinstance(feat, dict):
+                feat = feat.get("x_norm_clstoken") or feat.get("cls_token") or next(iter(feat.values()))
+            outc.append(torch.nn.functional.normalize(feat, dim=-1).cpu().numpy().astype("f4"))
+    return np.concatenate(outc, 0) if outc else np.zeros((0, 0), "f4")
+
+def _enc_siglip(frames_bgr):
+    """Reuses the running SigLIP image tower (so DINOv3 vs SigLIP is an apples-to-apples vector diff)."""
+    import numpy as np, torch
+    from PIL import Image
+    chunk = int(os.environ.get("LADDER_GPU_BATCH", "256"))
+    m, pre, txt, gidx, groups, cv2, dev = _siglip()
+    tens = [pre(Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))) for f in frames_bgr]
+    outc = []
+    with torch.no_grad():
+        for i in range(0, len(tens), chunk):
+            v = m.encode_image(torch.stack(tens[i:i + chunk]).to(dev))
+            outc.append(torch.nn.functional.normalize(v, dim=-1).cpu().numpy().astype("f4"))
+    return np.concatenate(outc, 0) if outc else np.zeros((0, 0), "f4")
+
+ENCODERS = {  # name -> embed fn. Add V-JEPA2 / CLIP / a concat here later; the stage stays unchanged.
+    "dinov3_vitb16": lambda fr: _enc_dinov3(fr, "dinov3_vitb16"),
+    "dinov3_vitl16": lambda fr: _enc_dinov3(fr, "dinov3_vitl16"),
+    "siglip":        _enc_siglip,
+}
+
+def _save_vector(encoder, path_rel, pooled, per_frame):
+    """Per-encoder vector store (npz). R2 batch-sync (tiktok 50k/file pattern) is a follow-up."""
+    import numpy as np
+    d = f"{VEC_DIR}/{encoder}"; os.makedirs(d, exist_ok=True)
+    h_ = os.path.splitext(os.path.basename(path_rel))[0]
+    np.savez(f"{d}/{h_}.npz", pooled=pooled.astype("f4"), frames=per_frame.astype("f4"))
+
+def _embed_batch(paths):
+    """ADDITIVE, encoder-agnostic. Threaded hi-res decode -> ACTIVE_ENCODER embed (batched across clips)
+    -> per-clip mean-pooled vector to VEC_DIR/<encoder>/. Returns a tiny resumable marker, no decision."""
+    from concurrent.futures import ThreadPoolExecutor
+    enc = ACTIVE_ENCODER
+    if enc not in ENCODERS:
+        raise ValueError(f"unknown LADDER_ENCODER '{enc}'; have {list(ENCODERS)}")
+    embed_fn = ENCODERS[enc]
     with ThreadPoolExecutor(max_workers=8) as ex:
         loaded = list(ex.map(get_frames_hires, paths))
     out, flat, owner = {}, [], []
     for p, (frames, times) in zip(paths, loaded):
         if not frames:
-            out[p] = {"embedded": False, "reasons": ["empty"]}; owner.append((p, 0)); continue
-        for f in frames:
-            rgb = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
-            flat.append(torch.from_numpy(np.ascontiguousarray(rgb)).permute(2, 0, 1))
-        owner.append((p, len(frames)))
-    embs = None
-    if flat:
-        chunks = []
-        with torch.no_grad():
-            for i in range(0, len(flat), gpu_chunk):
-                b = torch.stack(flat[i:i + gpu_chunk]).to(dev).float().div_(255)
-                b = (b - mean) / std
-                feat = m(b)                                  # DINOv3 backbone -> (B, D) pooled/CLS embedding
-                if isinstance(feat, dict):                   # some hub variants return a dict
-                    feat = feat.get("x_norm_clstoken") or feat.get("cls_token") or next(iter(feat.values()))
-                feat = torch.nn.functional.normalize(feat, dim=-1)
-                chunks.append(feat.cpu().numpy().astype("f4"))
-        embs = np.concatenate(chunks, 0)
+            out[p] = {"embedded": False, "encoder": enc, "reasons": ["empty"]}; owner.append((p, 0)); continue
+        flat.extend(frames); owner.append((p, len(frames)))   # encoder handles RGB + preprocess
+    embs = embed_fn(flat) if flat else None
     row = 0
     for p, n in owner:
         if n == 0: continue
         clip_vecs = embs[row:row + n]; row += n
-        _save_vector(p, clip_vecs.mean(0), clip_vecs)        # per-clip = mean of keyframe embeddings
-        out[p] = {"embedded": True, "dim": int(clip_vecs.shape[1]), "n_frames": int(n)}
+        _save_vector(enc, p, clip_vecs.mean(0), clip_vecs)
+        out[p] = {"embedded": True, "encoder": enc, "dim": int(clip_vecs.shape[1]), "n_frames": int(n)}
     return out
 
 import functools
@@ -583,8 +606,8 @@ STAGES = {
                  "trigger": "JUDGE the unsure residue: grade rubric -> PASS/BDLN/FAIL"},
     # ADDITIVE: not in ORDER, so `run` (all) skips it. Run with `ladder run --stage embed`. Decodes its
     # own hi-res frames, writes vectors to VEC_DIR, no decision. Feeds the (separate) head/router trainer.
-    "embed":    {"level": "Lx", "version": "d3",  "fn": None,      "workers": 1,  "gate": None,
-                 "batch_fn": _embed_batch, "bsize": 256,
-                 "trigger": "additive: DINOv3 embedding -> vector store (no decision)"},
+    "embed":    {"level": "Lx", "version": ACTIVE_ENCODER, "fn": None, "workers": 1, "gate": None,
+                 "batch_fn": _embed_batch, "bsize": 256,    # version=encoder -> per-model rows + vectors, comparable
+                 "trigger": "additive: <encoder> embedding -> vector store (no decision)"},
 }
 ORDER = ["meta", "cheap_cv", "geometry", "objects", "semantic", "vlm"]  # NOTE: 'embed' intentionally excluded
