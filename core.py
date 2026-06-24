@@ -12,7 +12,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 # data root: set LADDER_DATA to wherever the egoverse mp4s live (default ~/ladder-data).
 SSD = os.environ.get("LADDER_DATA", os.path.expanduser("~/ladder-data"))
 DB = f"{SSD}/triage.db"
-CACHE = f"{SSD}/frames_cache"
+CACHE = f"{SSD}/frames_cache"            # shared 160x120 cache the RUNNING cheap layers depend on
+HIRES_CACHE = f"{SSD}/frames_hires"      # SEPARATE model-res cache for the DINOv3 embed stage (isolated)
+VEC_DIR = f"{SSD}/embeddings"            # per-clip DINOv3 vectors (R2 batch-sync is a follow-up)
 os.makedirs(SSD, exist_ok=True)
 
 # ----------------------------------------------------------------- store
@@ -347,6 +349,99 @@ def _semantic_batch(paths):
         out[p] = _semantic_verdict(sim[row:row + n], times, gidx, groups); row += n
     return out
 
+# ----------------------------------------------------------------- DINOv3 embed stage (ADDITIVE)
+# Decision-neutral: produces a per-clip vector, writes NO band/verdict. Decodes its OWN hi-res frames
+# (HIRES_CACHE) so the shared 160x120 cache the running cheap layers depend on is never touched.
+# Not in ORDER, so `ladder run` (all) skips it; run explicitly with `ladder run --stage embed`.
+def get_frames_hires(path_rel, w=256, h=256):
+    """Like get_frames but at model resolution, in a SEPARATE cache. Intentional duplication so the
+    running pipeline's 160x120 decode is untouched (DINOv3 wants real pixels; multiple of 16)."""
+    import numpy as np, re, subprocess
+    os.makedirs(HIRES_CACHE, exist_ok=True)
+    h_ = os.path.splitext(os.path.basename(path_rel))[0]
+    npz = f"{HIRES_CACHE}/{h_}.npz"
+    if os.path.exists(npz):
+        try:
+            d = np.load(npz); return list(d["f"]), [float(x) for x in d["t"]]
+        except Exception:
+            pass
+    r = subprocess.run(["ffmpeg", "-v", "info", "-skip_frame", "nokey", "-i", f"{SSD}/{path_rel}",
+        "-vsync", "0", "-vf", f"scale={w}:{h},showinfo", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
+        capture_output=True)
+    fsz = w * h * 3; n = len(r.stdout) // fsz
+    if n == 0:
+        return [], []
+    frames = [np.frombuffer(r.stdout[i*fsz:(i+1)*fsz], np.uint8).reshape(h, w, 3) for i in range(n)]
+    times = [float(t) for t in re.findall(r"pts_time:([\d.]+)", r.stderr.decode("utf-8", "ignore"))][:n]
+    if len(times) < n:
+        times = times + [round(i, 1) for i in range(len(times), n)]
+    np.savez_compressed(npz, f=np.stack(frames), t=np.array(times, "f4"))
+    return frames, times
+
+# distilled ViT-B/L recommended (NOT the 7B teacher). Weights are gated; override via env or point at
+# a local checkpoint. The exact hub entrypoint/return attr may need a one-line tweak per the DINOv3 API.
+DINOV3_REPO = os.environ.get("DINOV3_REPO", "facebookresearch/dinov3")
+DINOV3_MODEL = os.environ.get("DINOV3_MODEL", "dinov3_vitb16")
+_IMAGENET_MEAN = (0.485, 0.456, 0.406)
+_IMAGENET_STD = (0.229, 0.224, 0.225)
+
+def _dinov3():
+    """Lazy DINOv3 singleton (model + device)."""
+    import torch
+    if "dinov3" not in _M:
+        dev = _device()
+        m = torch.hub.load(DINOV3_REPO, DINOV3_MODEL)   # TODO: may need weights=<local .pth> for gated checkpoint
+        _M["dinov3"] = (m.to(dev).eval(), dev)
+    return _M["dinov3"]
+
+def _save_vector(path_rel, pooled, per_frame):
+    """Persist the clip embedding locally (npz). R2 batch-sync (tiktok 50k/file pattern) is a follow-up."""
+    import numpy as np
+    os.makedirs(VEC_DIR, exist_ok=True)
+    h_ = os.path.splitext(os.path.basename(path_rel))[0]
+    np.savez(f"{VEC_DIR}/{h_}.npz", pooled=pooled.astype("f4"), frames=per_frame.astype("f4"))
+
+def _embed_batch(paths):
+    """ADDITIVE stage: DINOv3 per-keyframe embeddings pooled per clip, batched across clips (same
+    pooling pattern as _semantic_batch). Writes the vector to VEC_DIR; returns a tiny marker so the
+    run is resumable. No decision."""
+    import numpy as np, torch, cv2
+    from concurrent.futures import ThreadPoolExecutor
+    gpu_chunk = int(os.environ.get("LADDER_GPU_BATCH", "256"))
+    m, dev = _dinov3()
+    mean = torch.tensor(_IMAGENET_MEAN, device=dev).view(1, 3, 1, 1)
+    std = torch.tensor(_IMAGENET_STD, device=dev).view(1, 3, 1, 1)
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        loaded = list(ex.map(get_frames_hires, paths))
+    out, flat, owner = {}, [], []
+    for p, (frames, times) in zip(paths, loaded):
+        if not frames:
+            out[p] = {"embedded": False, "reasons": ["empty"]}; owner.append((p, 0)); continue
+        for f in frames:
+            rgb = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
+            flat.append(torch.from_numpy(np.ascontiguousarray(rgb)).permute(2, 0, 1))
+        owner.append((p, len(frames)))
+    embs = None
+    if flat:
+        chunks = []
+        with torch.no_grad():
+            for i in range(0, len(flat), gpu_chunk):
+                b = torch.stack(flat[i:i + gpu_chunk]).to(dev).float().div_(255)
+                b = (b - mean) / std
+                feat = m(b)                                  # DINOv3 backbone -> (B, D) pooled/CLS embedding
+                if isinstance(feat, dict):                   # some hub variants return a dict
+                    feat = feat.get("x_norm_clstoken") or feat.get("cls_token") or next(iter(feat.values()))
+                feat = torch.nn.functional.normalize(feat, dim=-1)
+                chunks.append(feat.cpu().numpy().astype("f4"))
+        embs = np.concatenate(chunks, 0)
+    row = 0
+    for p, n in owner:
+        if n == 0: continue
+        clip_vecs = embs[row:row + n]; row += n
+        _save_vector(p, clip_vecs.mean(0), clip_vecs)        # per-clip = mean of keyframe embeddings
+        out[p] = {"embedded": True, "dim": int(clip_vecs.shape[1]), "n_frames": int(n)}
+    return out
+
 import functools
 @functools.lru_cache(maxsize=4)
 def load_rubric(name="capture_quality"):
@@ -486,5 +581,10 @@ STAGES = {
                  "trigger": "bad: looking_away/no_workspace>.7. good: <.3. else unsure->judge"},
     "vlm":      {"level": "L4", "version": "cap", "fn": _vlm,      "workers": 4,  "gate": UNSURE_ANY,
                  "trigger": "JUDGE the unsure residue: grade rubric -> PASS/BDLN/FAIL"},
+    # ADDITIVE: not in ORDER, so `run` (all) skips it. Run with `ladder run --stage embed`. Decodes its
+    # own hi-res frames, writes vectors to VEC_DIR, no decision. Feeds the (separate) head/router trainer.
+    "embed":    {"level": "Lx", "version": "d3",  "fn": None,      "workers": 1,  "gate": None,
+                 "batch_fn": _embed_batch, "bsize": 256,
+                 "trigger": "additive: DINOv3 embedding -> vector store (no decision)"},
 }
-ORDER = ["meta", "cheap_cv", "geometry", "objects", "semantic", "vlm"]
+ORDER = ["meta", "cheap_cv", "geometry", "objects", "semantic", "vlm"]  # NOTE: 'embed' intentionally excluded
