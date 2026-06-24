@@ -37,9 +37,15 @@ def db(path=DB):
     c.execute("PRAGMA journal_mode=WAL")  # WAL so a reader (status) never blocks the writer
     return c
 
-def catalog(con):
-    """Glob the SSD once, fill videos. Idempotent (INSERT OR IGNORE)."""
-    vids = glob.glob(f"{SSD}/processed_v3/**/*.mp4", recursive=True)
+def catalog(con, pattern=None):
+    """Glob videos into the catalog (idempotent, INSERT OR IGNORE). Default = EgoVerse layout; override
+    the glob to run on ANY dataset. Each dataset = its own LADDER_DATA dir + triage.db, comparable via
+    `funnel`. Pattern is relative to LADDER_DATA, or absolute.
+      LADDER_DATA=/data/ego4d ./ladder.py catalog --glob 'v2/**/*.mp4'
+      LADDER_DATA=/data/egodex ./ladder.py catalog --glob '**/*.mp4'"""
+    pattern = pattern or os.environ.get("LADDER_GLOB", "processed_v3/**/*.mp4")
+    root = pattern if os.path.isabs(pattern) else f"{SSD}/{pattern}"
+    vids = glob.glob(root, recursive=True)
     rows = []
     for p in vids:
         rel = os.path.relpath(p, SSD)
