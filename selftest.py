@@ -103,7 +103,13 @@ else:
 
 # ---------------------------------------------------------------- [B] HF embed forward (embed branch)
 print("\n[B] DINOv3/HF embed forward path")
-if hasattr(P, "_enc_dinov3"):
+# OPT-IN: downloads a model (~85MB). Off by default so this never pulls weights on the Railway box.
+# Verify the embed forward on a GPU box with: LADDER_SELFTEST_HF=1 python3 selftest.py
+if not hasattr(P, "_enc_dinov3"):
+    print("  SKIP  _enc_dinov3 not on this branch")
+elif os.environ.get("LADDER_SELFTEST_HF") != "1":
+    print("  SKIP  embed forward (set LADDER_SELFTEST_HF=1 to verify; downloads ~85MB, costs egress)")
+else:
     import types
     cv2_shim = types.ModuleType("cv2"); cv2_shim.COLOR_BGR2RGB = 4
     cv2_shim.cvtColor = lambda img, code: img[:, :, ::-1].copy(); sys.modules["cv2"] = cv2_shim
@@ -114,8 +120,6 @@ if hasattr(P, "_enc_dinov3"):
               v.shape[0] == 3 and v.ndim == 2 and abs(np.linalg.norm(v[0]) - 1) < 1e-2)
     except Exception as e:
         print(f"  SKIP  forward (no weights/offline): {str(e)[:100]}")
-else:
-    print("  SKIP  _enc_dinov3 not on this branch")
 
 # ---------------------------------------------------------------- [C] explore.py end-to-end (embed branch)
 print("\n[C] explore.py on real vectors")
