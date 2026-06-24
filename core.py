@@ -383,34 +383,31 @@ def get_frames_hires(path_rel, w=256, h=256):
 # VEC_DIR/<name>/ and results are versioned by <name>, so multiple encoders run over the same corpus and stay
 # directly comparable (the DINOv3 vs SigLIP vs concat ablation = run two, diff the vectors). ----
 ACTIVE_ENCODER = os.environ.get("LADDER_ENCODER", "dinov3_vitb16")
-DINOV3_REPO = os.environ.get("DINOV3_REPO", "facebookresearch/dinov3")
-_IMAGENET_MEAN = (0.485, 0.456, 0.406)
-_IMAGENET_STD = (0.229, 0.224, 0.225)
 
-def _dinov3(model_name):
-    """Lazy DINOv3 singleton per variant. Weights gated; may need weights=<local .pth> per the hub API."""
-    import torch
-    key = f"dinov3:{model_name}"
+def _dinov3(model_id):
+    """Lazy DINOv3 singleton (HF transformers). Weights are gated -> accept the license on HF and set
+    HF_TOKEN (or `huggingface-cli login`). model + AutoImageProcessor (handles resize/normalize)."""
+    from transformers import AutoImageProcessor, AutoModel
+    key = f"dinov3:{model_id}"
     if key not in _M:
-        m = torch.hub.load(DINOV3_REPO, model_name)        # TODO: may need weights=<local ckpt> for gated weights
-        _M[key] = (m.to(_device()).eval(), _device())
+        dev = _device()
+        proc = AutoImageProcessor.from_pretrained(model_id)
+        m = AutoModel.from_pretrained(model_id).to(dev).eval()
+        _M[key] = (m, proc, dev)
     return _M[key]
 
-def _enc_dinov3(frames_bgr, model_name="dinov3_vitb16"):
+def _enc_dinov3(frames_bgr, model_id="facebook/dinov3-vitb16-pretrain-lvd1689m"):
+    """BGR uint8 frames -> normalized (N, D) via DINOv3 pooler_output (the CLS embedding)."""
     import numpy as np, torch, cv2
+    from PIL import Image
     chunk = int(os.environ.get("LADDER_GPU_BATCH", "256"))
-    m, dev = _dinov3(model_name)
-    mean = torch.tensor(_IMAGENET_MEAN, device=dev).view(1, 3, 1, 1)
-    std = torch.tensor(_IMAGENET_STD, device=dev).view(1, 3, 1, 1)
-    tens = [torch.from_numpy(np.ascontiguousarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))).permute(2, 0, 1)
-            for f in frames_bgr]
+    m, proc, dev = _dinov3(model_id)
+    imgs = [Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)) for f in frames_bgr]
     outc = []
-    with torch.no_grad():
-        for i in range(0, len(tens), chunk):
-            b = torch.stack(tens[i:i + chunk]).to(dev).float().div_(255); b = (b - mean) / std
-            feat = m(b)
-            if isinstance(feat, dict):
-                feat = feat.get("x_norm_clstoken") or feat.get("cls_token") or next(iter(feat.values()))
+    with torch.inference_mode():
+        for i in range(0, len(imgs), chunk):
+            inputs = proc(images=imgs[i:i + chunk], return_tensors="pt").to(dev)
+            feat = m(**inputs).pooler_output                 # (B, D) verified per HF DINOv3 docs
             outc.append(torch.nn.functional.normalize(feat, dim=-1).cpu().numpy().astype("f4"))
     return np.concatenate(outc, 0) if outc else np.zeros((0, 0), "f4")
 
@@ -429,8 +426,8 @@ def _enc_siglip(frames_bgr):
     return np.concatenate(outc, 0) if outc else np.zeros((0, 0), "f4")
 
 ENCODERS = {  # name -> embed fn. Add V-JEPA2 / CLIP / a concat here later; the stage stays unchanged.
-    "dinov3_vitb16": lambda fr: _enc_dinov3(fr, "dinov3_vitb16"),
-    "dinov3_vitl16": lambda fr: _enc_dinov3(fr, "dinov3_vitl16"),
+    "dinov3_vitb16": lambda fr: _enc_dinov3(fr, "facebook/dinov3-vitb16-pretrain-lvd1689m"),
+    "dinov3_vitl16": lambda fr: _enc_dinov3(fr, "facebook/dinov3-vitl16-pretrain-lvd1689m"),
     "siglip":        _enc_siglip,
 }
 

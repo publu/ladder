@@ -35,12 +35,20 @@ def _run_stage(con, name, limit=0):
             chunk = todo[i:i+bsize]
             try:
                 res = bfn(chunk)
-            except Exception as e:
-                res = {p: {"bad": True, "reasons": ["error"], "err": str(e)[:80]} for p in chunk}
+            except Exception:
+                # ISOLATE failures: re-run one clip at a time so a single bad clip (decode error, OOM)
+                # doesn't poison its batchmates into permanent 'bad' rows that never retry.
+                res = {}
+                for p in chunk:
+                    try:
+                        res.update(bfn([p]))
+                    except Exception as e:
+                        res[p] = {"bad": True, "reasons": ["error"], "err": str(e)[:80]}
             rows = [(p, res.get(p, {"bad": True, "reasons": ["error"]})) for p in chunk]
             P.write_results(con, name, ver, rows)
             n += len(rows); nbad += sum(bool(v.get("bad")) for _, v in rows)
-            print(f"  {n}/{len(todo)}  {nbad} bad  {n/(time.time()-t0):.0f} vid/s", file=sys.stderr)
+            dt = time.time() - t0
+            print(f"  {n}/{len(todo)}  {nbad} bad  {n/dt if dt > 0 else 0:.0f} vid/s", file=sys.stderr)
         con.execute("INSERT INTO runs(stage,version,started,finished,n_done) VALUES(?,?,?,?,?)",
                     (name, ver, t0, time.time(), n)); con.commit()
         print(f"[run] {name}/{ver} done (batched): {n} processed, {nbad} bad, {time.time()-t0:.0f}s", file=sys.stderr)
