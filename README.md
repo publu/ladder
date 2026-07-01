@@ -20,28 +20,22 @@ Keyframes are decoded once and every layer reads the cache. Decode on a USB SSD 
 the cascade pays it a single time. The run is resumable, versioned, and watchable in a live web viewer.
 
 ## The funnel, measured
-This table is the output of `ladder funnel --md` on the EgoVerse preview corpus. Run it on your own
-`triage.db` to reproduce it. Each row shows where that layer sends clips: decided FAIL on its own, or
-deferred up to the judge.
+This is the cascade's outcome on the EgoVerse preview corpus (132,576 clips), read straight from the
+shipped `triage.db`. Run `ladder funnel --md` on your own DB to reproduce the per-layer view.
 
-On this corpus (132,576 clips), where each layer sends clips:
+| outcome | clips | share |
+|---|---|---|
+| **PASS** — cleared by the cheap layers, never touched the judge | 98,895 | 74.6% |
+| **BORDERLINE** — a cheap layer was unsure, flagged for review | 33,674 | 25.4% |
+| **FAIL** — hard reject (corrupt file, or the judge failed it) | 7 | <0.01% |
 
-| layer | catches | decided FAIL | deferred to judge |
-|---|---|---|---|
-| **L0 meta** | corrupt / empty | 13 | 0 |
-| **L1 cheap_cv** | black / blur / frozen | 373 | 439 |
-| **L2 geometry** | no hands in frame | 20,836 | 23,780 |
-| **L3 objects** | phone in hand | 564 | 1,546 |
-| **L3 semantic** | looking away (SigLIP, least calibrated) | 22,485 | 0 |
-| **cleared PASS** (good through every layer) | | 62,540 (47.2%) | |
-| **L4 judge** | full rubric | sees only the deferred | **25,765 (19.4%)** |
-
-The cheap layers resolve **~80% of the corpus on their own**, so the judge sees only the ~1-in-5 they
-cannot call. The two big rejects are geometry (no hands visible in >80% of frames, a hard signal for
-manipulation data) and semantic (SigLIP `looking_away`, the noisiest layer and the next calibration
-target). On the clips we judged, the cascade's confident calls agreed with the judge **84% of the
-time**. Tightening a layer's thresholds re-scores from cached frames instead of the corpus and lands as
-a new version beside the old one, so `eval.py` can show whether the change helped.
+The cheap layers clear **~75% of the corpus on their own** and flag the other **~25% as borderline**
+rather than throwing it away — nothing is hard-failed on a cheap signal alone. Only the residue the
+layers can't call is meant for the LLM judge (run on a 43-clip sample here); everything else is decided
+for free. Geometry (no hands visible in >80% of frames, a hard signal for manipulation data) and
+semantic (SigLIP `looking_away`, the noisiest layer and the next calibration target) drive most of the
+borderline flags. Tightening a layer's thresholds re-scores from cached frames instead of the corpus
+and lands as a new version beside the old one, so `eval.py` can show whether the change helped.
 
 Each cheap layer runs only on what the layer below cleared as GOOD, and returns **bad / good / unsure**
 (two thresholds bracketing an uncertainty band). Confident-bad fails and stops. Confident-good flows
