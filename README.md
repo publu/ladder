@@ -41,13 +41,13 @@ Each cheap layer runs only on what the layer below cleared as GOOD, and returns 
 (two thresholds bracketing an uncertainty band). Confident-bad fails and stops. Confident-good flows
 up. Unsure defers to the judge.
 
-| Lvl | Checks | Tool | Speed | Decides |
+| Lvl | Checks | Tool | Cost class | Decides |
 |----|--------|------|-------|--------|
-| **L0 meta** | corrupt / empty | ffprobe | ~1000/s | FAIL broken files, else pass up |
-| **L1 cv** | camera blocked · blur · frozen | luma · Laplacian · motion | ~16/s | FAIL / pass / defer |
-| **L2 geometry** | hands visible? | MediaPipe | ~15/s | FAIL / pass / defer |
-| **L3 semantic** | workspace visible · looking away? · phone? | SigLIP + YOLO | ~1–3/s | FAIL / pass / defer |
-| **L4 JUDGE** | the full rubric from keyframes (*uncertain residue only*) | Claude (`claude -p`) | ~0.1/s | **PASS/BDLN/FAIL** |
+| **L0 meta** | corrupt / empty | ffprobe | low | FAIL broken files, else pass up |
+| **L1 cv** | camera blocked · blur · frozen | luma · Laplacian · motion | low | FAIL / pass / defer |
+| **L2 geometry** | hands visible? | MediaPipe | low | FAIL / pass / defer |
+| **L3 semantic** | workspace visible · looking away? · phone? | SigLIP + YOLO | medium | FAIL / pass / defer |
+| **L4 JUDGE** | the full rubric from keyframes (*uncertain residue only*) | Claude (`claude -p`) | high | **PASS/BDLN/FAIL** |
 
 ## The rubric (task-agnostic capture quality)
 For any manipulation task, the rubric grades whether a clip is a usable recording at all. It does not

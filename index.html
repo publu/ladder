@@ -52,7 +52,7 @@
             <h1 id="hero-title">Spend compute<br />on the <em>hard clips.</em></h1>
             <p>Ladder decodes each source once, reuses frames and features across every quality stage, and sends only uncertain data to expensive models.</p>
             <div class="hero-actions">
-              <a class="button button-primary" href="https://www.linkedin.com/in/publu/" target="_blank" rel="noopener noreferrer">Benchmark a batch <span>↗</span></a>
+              <a class="button button-primary" href="mailto:pablo@roborun.dev?subject=Benchmark%20a%20robot%20batch">Benchmark a batch <span>↗</span></a>
               <a class="button button-secondary" href="https://github.com/publu/ladder" target="_blank" rel="noopener">Inspect the code <span>↗</span></a>
             </div>
           </div>
@@ -79,7 +79,7 @@
           <article><span>01</span><strong>74.6%</strong><h3>Cleared cheaply</h3><p>98,895 clips never needed the expensive judge.</p></article>
           <article><span>02</span><strong>25.4%</strong><h3>Deferred honestly</h3><p>33,674 uncertain clips remained available for review.</p></article>
           <article><span>03</span><strong>1×</strong><h3>Decoded once</h3><p>Every stage reads the same cached keyframes.</p></article>
-          <article><span>04</span><strong>&gt;90%</strong><h3>Less repeated media compute</h3><p>Retained source work compounds across every output view.</p></article>
+          <article><span>04</span><strong>&lt;0.01%</strong><h3>Hard-failed</h3><p>Only seven clips were rejected outright; uncertain data stayed reviewable.</p></article>
         </div>
       </section>
 
@@ -91,11 +91,11 @@
             <p>Fast, broad checks handle obvious cases. Each layer decides what it knows and defers the rest. The expensive judge sees the residue, not the corpus.</p>
           </div>
           <div class="ladder-stack" role="list" aria-label="Ladder processing stages">
-            <div role="listitem"><span>L0</span><div><h3>Metadata</h3><p>Corrupt · empty</p></div><strong>~1,000/s</strong><i></i></div>
-            <div role="listitem"><span>L1</span><div><h3>Cheap CV</h3><p>Blocked · blur · frozen</p></div><strong>~16/s</strong><i></i></div>
-            <div role="listitem"><span>L2</span><div><h3>Geometry</h3><p>Hands visible</p></div><strong>~15/s</strong><i></i></div>
-            <div role="listitem"><span>L3</span><div><h3>Semantics</h3><p>Workspace · attention · phone</p></div><strong>1–3/s</strong><i></i></div>
-            <div role="listitem" class="judge"><span>L4</span><div><h3>Model judge</h3><p>Full capture-quality rubric</p></div><strong>~0.1/s</strong><i></i></div>
+            <div role="listitem"><span>L0</span><div><h3>Metadata</h3><p>Corrupt · empty</p></div><strong>FAST GATE</strong><i></i></div>
+            <div role="listitem"><span>L1</span><div><h3>Cheap CV</h3><p>Blocked · blur · frozen</p></div><strong>FAST GATE</strong><i></i></div>
+            <div role="listitem"><span>L2</span><div><h3>Geometry</h3><p>Hands visible</p></div><strong>FAST GATE</strong><i></i></div>
+            <div role="listitem"><span>L3</span><div><h3>Semantics</h3><p>Workspace · attention · phone</p></div><strong>MODEL GATE</strong><i></i></div>
+            <div role="listitem" class="judge"><span>L4</span><div><h3>Model judge</h3><p>Full capture-quality rubric</p></div><strong>EXPENSIVE</strong><i></i></div>
           </div>
         </div>
       </section>
@@ -120,7 +120,7 @@
           <p class="section-label">Run the comparison</p>
           <h2 id="closing-title">Bring one batch.</h2>
           <p>Keep your current quality rubric. We will compare accepted yield, defects found, review load, and compute spent on the same source data.</p>
-          <a class="button button-primary" href="https://www.linkedin.com/in/publu/" target="_blank" rel="noopener noreferrer">Benchmark a batch <span>↗</span></a>
+          <a class="button button-primary" href="mailto:pablo@roborun.dev?subject=Benchmark%20a%20robot%20batch">Benchmark a batch <span>↗</span></a>
         </div>
       </section>
     </main>
