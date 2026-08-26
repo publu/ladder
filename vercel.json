@@ -1,5 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "",
+  "buildCommand": "mkdir -p .vercel-static && cp index.html ladder.css main.js favicon.svg .vercel-static/",
+  "outputDirectory": ".vercel-static",
   "cleanUrls": true,
   "headers": [
     {
