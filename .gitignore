@@ -32,3 +32,4 @@ bands.json
 # demo: downloaded db lives here, not in git
 demo/data/
 .vercel
+.vercel-static/

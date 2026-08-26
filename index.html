@@ -3,130 +3,199 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ladder by RoboRun — Compute-efficient data quality</title>
-    <meta name="description" content="Ladder processes multimodal data once, reuses the work across quality stages, and reserves expensive model calls for the uncertain residue." />
-    <meta name="theme-color" content="#0b0d0c" />
+    <title>LADDER — Egocentric data cascade</title>
+    <meta
+      name="description"
+      content="An interactive view of 132,576 egocentric clips moving through the LADDER quality cascade."
+    />
+    <meta name="theme-color" content="#090b0a" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <link rel="canonical" href="https://ladder.roborun.dev/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="RoboRun" />
     <meta property="og:url" content="https://ladder.roborun.dev/" />
-    <meta property="og:title" content="Ladder by RoboRun — Compute-efficient data quality" />
-    <meta property="og:description" content="132,576 clips. One decode. 74.6% cleared before the expensive judge." />
+    <meta property="og:title" content="LADDER — Egocentric data cascade" />
+    <meta
+      property="og:description"
+      content="Explore detector decisions, cascade exits, signal distributions, and persisted outcomes across 132,576 egocentric clips."
+    />
     <meta property="og:image" content="https://ladder.roborun.dev/ladder-og.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Ladder compute funnel showing 132,576 clips and a cheapest-first quality-control cascade" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Ladder by RoboRun — Compute-efficient data quality" />
-    <meta name="twitter:description" content="132,576 clips. One decode. 74.6% cleared before the expensive judge." />
-    <meta name="twitter:image" content="https://ladder.roborun.dev/ladder-og.png" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700&amp;display=optional" rel="stylesheet" media="print" onload="this.media='all'" />
-    <noscript><link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700&amp;display=optional" rel="stylesheet" /></noscript>
     <link rel="stylesheet" href="./ladder.css" />
     <script src="./main.js" defer></script>
   </head>
   <body>
-    <a class="skip-link" href="#main">Skip to content</a>
-    <header class="site-header">
-      <a class="brand" href="https://roborun.dev/" aria-label="RoboRun home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span>RoboRun</span>
+    <a class="skip-link" href="#visualization">Skip to visualization</a>
+
+    <header class="topbar">
+      <a class="identity" href="https://roborun.dev/" aria-label="RoboRun home">
+        <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <strong>RoboRun</strong>
       </a>
-      <span class="product-name">/ LADDER</span>
-      <nav aria-label="Page navigation">
-        <a href="#benchmark">Benchmark</a>
-        <a href="#architecture">Architecture</a>
-        <a href="https://github.com/publu/ladder" target="_blank" rel="noopener">Source ↗</a>
-      </nav>
+      <span class="slash">/</span>
+      <span class="product">LADDER</span>
+      <div class="dataset-id">
+        <i></i>
+        <span>DATASET</span>
+        <strong data-dataset>LOADING</strong>
+      </div>
+      <div class="snapshot-id">
+        <span>SNAPSHOT</span>
+        <strong data-snapshot>—</strong>
+      </div>
+      <a class="evidence-link" href="https://demo.roborun.dev/" target="_blank" rel="noopener">
+        VIDEO EVIDENCE <span>↗</span>
+      </a>
+      <a class="source-link" href="https://github.com/publu/ladder" target="_blank" rel="noopener">
+        SOURCE <span>↗</span>
+      </a>
     </header>
 
-    <main id="main">
-      <section class="hero" aria-labelledby="hero-title">
-        <div class="shell hero-layout">
-          <div class="hero-copy">
-            <p class="eyebrow"><i></i> Compute-optimized quality control</p>
-            <h1 id="hero-title">Spend compute<br />on the <em>hard clips.</em></h1>
-            <p>Ladder decodes each source once, reuses frames and features across every quality stage, and sends only uncertain data to expensive models.</p>
-            <div class="hero-actions">
-              <a class="button button-primary" href="mailto:pablo@roborun.dev?subject=Benchmark%20a%20robot%20batch">Benchmark a batch <span>↗</span></a>
-              <a class="button button-secondary" href="https://github.com/publu/ladder" target="_blank" rel="noopener">Inspect the code <span>↗</span></a>
-            </div>
-          </div>
+    <main class="workspace" id="visualization">
+      <aside class="left-rail">
+        <section class="corpus-total" aria-label="Corpus size">
+          <span>CATALOGUED CLIPS</span>
+          <strong data-total>—</strong>
+          <small>FIRST-PERSON VIDEO</small>
+        </section>
 
-          <div class="funnel-card" aria-label="Measured Ladder processing funnel">
-            <header><span>EGOVERSE PREVIEW / MEASURED</span><b>132,576 CLIPS</b></header>
-            <div class="funnel-source"><span>ALL CLIPS</span><strong>132,576</strong><i></i></div>
-            <div class="funnel-branch">
-              <div class="cleared"><span>CHEAP LAYERS CLEAR</span><strong>98,895</strong><small>74.6% · NO JUDGE CALL</small></div>
-              <div class="deferred"><span>DEFER FOR REVIEW</span><strong>33,674</strong><small>25.4% · UNCERTAIN RESIDUE</small></div>
-            </div>
-            <footer><span><i></i> PASS</span><span><i></i> BORDERLINE</span><b>REPRODUCE: ladder funnel --md</b></footer>
-          </div>
-        </div>
-      </section>
+        <nav class="view-nav" aria-label="Visualization views">
+          <button class="is-active" type="button" data-view-button="cascade">
+            <span>01</span><strong>Cascade</strong><i></i>
+          </button>
+          <button type="button" data-view-button="signals">
+            <span>02</span><strong>Signals</strong><i></i>
+          </button>
+          <button type="button" data-view-button="outcomes">
+            <span>03</span><strong>Outcomes</strong><i></i>
+          </button>
+        </nav>
 
-      <section class="benchmark" id="benchmark" aria-labelledby="benchmark-title">
-        <div class="shell section-heading">
-          <p class="section-label">Measured funnel</p>
-          <h2 id="benchmark-title">132,576 clips.<br />One reusable pass.</h2>
-          <p>The numbers below come directly from the shipped <code>triage.db</code> snapshot and reproduce from the CLI.</p>
-        </div>
-        <div class="shell metric-grid">
-          <article><span>01</span><strong>74.6%</strong><h3>Cleared cheaply</h3><p>98,895 clips never needed the expensive judge.</p></article>
-          <article><span>02</span><strong>25.4%</strong><h3>Deferred honestly</h3><p>33,674 uncertain clips remained available for review.</p></article>
-          <article><span>03</span><strong>1×</strong><h3>Decoded once</h3><p>Every stage reads the same cached keyframes.</p></article>
-          <article><span>04</span><strong>&lt;0.01%</strong><h3>Hard-failed</h3><p>Only seven clips were rejected outright; uncertain data stayed reviewable.</p></article>
-        </div>
-      </section>
+        <section class="stage-index">
+          <header><span>RUNGS</span><small>CLICK TO INSPECT</small></header>
+          <div data-stage-index></div>
+        </section>
 
-      <section class="architecture" id="architecture" aria-labelledby="architecture-title">
-        <div class="shell architecture-layout">
-          <div class="architecture-copy">
-            <p class="section-label">Cheapest first</p>
-            <h2 id="architecture-title">A cascade, not a queue.</h2>
-            <p>Fast, broad checks handle obvious cases. Each layer decides what it knows and defers the rest. The expensive judge sees the residue, not the corpus.</p>
-          </div>
-          <div class="ladder-stack" role="list" aria-label="Ladder processing stages">
-            <div role="listitem"><span>L0</span><div><h3>Metadata</h3><p>Corrupt · empty</p></div><strong>FAST GATE</strong><i></i></div>
-            <div role="listitem"><span>L1</span><div><h3>Cheap CV</h3><p>Blocked · blur · frozen</p></div><strong>FAST GATE</strong><i></i></div>
-            <div role="listitem"><span>L2</span><div><h3>Geometry</h3><p>Hands visible</p></div><strong>FAST GATE</strong><i></i></div>
-            <div role="listitem"><span>L3</span><div><h3>Semantics</h3><p>Workspace · attention · phone</p></div><strong>MODEL GATE</strong><i></i></div>
-            <div role="listitem" class="judge"><span>L4</span><div><h3>Model judge</h3><p>Full capture-quality rubric</p></div><strong>EXPENSIVE</strong><i></i></div>
-          </div>
-        </div>
-      </section>
+        <section class="legend">
+          <p><i class="good"></i><span>GOOD</span><strong>flows upward</strong></p>
+          <p><i class="defer"></i><span>UNSURE</span><strong>defers</strong></p>
+          <p><i class="bad"></i><span>BAD</span><strong>exits</strong></p>
+        </section>
+      </aside>
 
-      <section class="reuse" aria-labelledby="reuse-title">
-        <div class="shell reuse-layout">
+      <section class="viz-shell">
+        <header class="viz-header">
           <div>
-            <p class="section-label">The compute contract</p>
-            <h2 id="reuse-title">Decode once.<br />Retune from cache.</h2>
+            <p data-view-kicker>ACTIVE THRESHOLD REPLAY</p>
+            <h1 data-view-title>Cascade topology</h1>
           </div>
-          <div class="contract-list">
-            <article><span>01</span><h3>One media cache</h3><p>Keyframes are decoded once and reused by CV, geometry, semantic, and judge layers.</p></article>
-            <article><span>02</span><h3>Versioned results</h3><p>Threshold changes write a new version beside the old one, so improvements stay measurable.</p></article>
-            <article><span>03</span><h3>Resumable work</h3><p>Completed clips and stages stay complete. New checks begin from retained source work.</p></article>
-            <article><span>04</span><h3>Reproducible output</h3><p>Every verdict keeps its stage, trigger, source identity, and evidence timestamp.</p></article>
+          <div class="policy-switch" role="group" aria-label="Policy state">
+            <button class="is-active" type="button" data-policy="active">ACTIVE BANDS</button>
+            <button type="button" data-policy="persisted">PERSISTED DB</button>
           </div>
-        </div>
+        </header>
+
+        <section class="view-panel is-active" data-view="cascade" aria-labelledby="cascade-heading">
+          <h2 class="sr-only" id="cascade-heading">Cascade topology</h2>
+          <div class="policy-notice" data-policy-notice>
+            Raw stored scores replayed through threshold bands in the current code revision.
+          </div>
+          <div class="cascade-chart" data-cascade-chart></div>
+          <div class="cascade-outcomes" data-cascade-outcomes></div>
+          <footer class="chart-axis">
+            <span>SOURCE</span><i></i><span>CHEAPEST</span><i></i><span>MORE CONTEXT</span><i></i><span>TERMINAL</span>
+          </footer>
+        </section>
+
+        <section class="view-panel" data-view="signals" aria-labelledby="signals-heading">
+          <div class="signal-view-head">
+            <div>
+              <h2 id="signals-heading">Stored score distributions</h2>
+              <p>Forty-eight bins per signal. Threshold bands are drawn over the measured corpus.</p>
+            </div>
+            <div><span data-signal-count>—</span> SIGNALS</div>
+          </div>
+          <div class="signal-grid" data-signal-grid></div>
+        </section>
+
+        <section class="view-panel" data-view="outcomes" aria-labelledby="outcomes-heading">
+          <div class="outcome-view-head">
+            <div>
+              <h2 id="outcomes-heading">Two policy states, one snapshot</h2>
+              <p>Persisted verdicts and current-threshold replay are intentionally shown separately.</p>
+            </div>
+          </div>
+          <div class="comparison" data-comparison></div>
+          <div class="route-table">
+            <header><span>PERSISTED ROUTE</span><span>CLIPS</span><span>SHARE</span></header>
+            <div data-route-table></div>
+          </div>
+        </section>
+
+        <footer class="viz-footer">
+          <p><span>DATA CONTRACT</span> Aggregate-only static payload derived from the tracked SQLite snapshot.</p>
+          <p><span>REPRODUCE</span> <code>python3 build_public_snapshot.py</code></p>
+        </footer>
       </section>
 
-      <section class="closing" aria-labelledby="closing-title">
-        <div class="shell closing-layout">
-          <p class="section-label">Run the comparison</p>
-          <h2 id="closing-title">Bring one batch.</h2>
-          <p>Keep your current quality rubric. We will compare accepted yield, defects found, review load, and compute spent on the same source data.</p>
-          <a class="button button-primary" href="mailto:pablo@roborun.dev?subject=Benchmark%20a%20robot%20batch">Benchmark a batch <span>↗</span></a>
-        </div>
-      </section>
+      <aside class="inspector" data-inspector>
+        <header class="inspector-top">
+          <div><span data-inspector-level>—</span><small>SELECTED RUNG</small></div>
+          <strong data-inspector-version>—</strong>
+        </header>
+
+        <section class="inspector-title">
+          <span data-inspector-engine>—</span>
+          <h2 data-inspector-label>Select a rung</h2>
+          <p data-inspector-checks>—</p>
+        </section>
+
+        <section class="coverage">
+          <header><span>PROCESSED</span><strong data-inspector-coverage>—</strong></header>
+          <div><i data-coverage-bar></i></div>
+          <p><strong data-inspector-processed>—</strong><span>of <b data-inspector-total>—</b> clips</span></p>
+        </section>
+
+        <section class="decision-block">
+          <header><span>LOCAL DECISIONS</span><small>BEFORE CASCADE ORDER</small></header>
+          <div data-decision-bars></div>
+        </section>
+
+        <section class="histogram-block">
+          <header>
+            <div><span>SIGNAL DISTRIBUTION</span><strong data-histogram-name>—</strong></div>
+            <select data-signal-select aria-label="Signal distribution"></select>
+          </header>
+          <div class="histogram" data-histogram>
+            <div class="histogram-bars" data-histogram-bars></div>
+            <i class="threshold threshold-low" data-threshold-low></i>
+            <i class="threshold threshold-high" data-threshold-high></i>
+          </div>
+          <div class="histogram-axis"><span>0</span><span data-histogram-max>1.0</span></div>
+          <dl class="quantiles" data-quantiles></dl>
+        </section>
+
+        <section class="reason-block">
+          <header><span>OBSERVED REASONS</span><small>RAW RESULT ROWS</small></header>
+          <div data-reasons></div>
+        </section>
+
+        <section class="video-evidence">
+          <header><span>RELATED VIDEO SETS</span><small>PUBLIC MP4 VIEWER</small></header>
+          <p data-video-relationship>Related examples; not row-level joins.</p>
+          <div data-video-sets></div>
+        </section>
+
+        <section class="integrity-note">
+          <i></i>
+          <p><span>INTEGRITY</span><strong>Versions are read from rows that actually ran.</strong></p>
+        </section>
+      </aside>
     </main>
 
-    <footer class="site-footer">
-      <div class="shell"><span>© <span data-year>2026</span> Manifest Intelligence, Inc.</span><nav><a href="https://roborun.dev/">RoboRun</a><a href="https://github.com/publu/ladder" target="_blank" rel="noopener">GitHub</a></nav></div>
-    </footer>
+    <div class="loading" data-loading role="status">
+      <span></span><strong>READING SNAPSHOT</strong>
+    </div>
   </body>
 </html>

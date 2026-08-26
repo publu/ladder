@@ -1,0 +1,725 @@
+{
+  "active_threshold_funnel": {
+    "by_layer": {
+      "cheap_cv:FAIL": 373,
+      "cheap_cv:defer": 439,
+      "geometry:FAIL": 20836,
+      "geometry:defer": 23780,
+      "meta:FAIL": 13,
+      "objects:FAIL": 564,
+      "objects:defer": 1546,
+      "semantic:FAIL": 16448,
+      "semantic:defer": 7997
+    },
+    "clear": 60580,
+    "defer": 33762,
+    "fail": 38234,
+    "total": 132576,
+    "versions": {
+      "cheap_cv": "v2",
+      "geometry": "v1",
+      "meta": "v1",
+      "objects": "v1",
+      "semantic": "cap"
+    }
+  },
+  "dataset": "EgoVerse preview",
+  "interpretation": {
+    "active_thresholds": "Raw stored scores re-evaluated under the threshold bands in the current code revision.",
+    "persisted": "Materialized verdict rows stored in the shipped database snapshot.",
+    "warning": "These are distinct policy states and must not be presented as the same measurement."
+  },
+  "persisted_routes": {
+    "auto-clean": 98848,
+    "hard-silt": 16,
+    "judge": 43,
+    "suspect-pending-judge": 33669
+  },
+  "persisted_verdicts": {
+    "BDLN": 33674,
+    "FAIL": 20,
+    "PASS": 98882,
+    "UNKNOWN": 0
+  },
+  "public_video_sets": {
+    "relationship": "Related public egocentric examples. These demo episodes are not row-level joins to the SQLite snapshot.",
+    "sets": [
+      {
+        "episodes": 100,
+        "id": "egodex_fold",
+        "label": "Folding tasks",
+        "url": "https://demo.roborun.dev/?job=egodex_fold&ep=0"
+      },
+      {
+        "episodes": 11,
+        "id": "egodex",
+        "label": "Tabletop manipulation",
+        "url": "https://demo.roborun.dev/?job=egodex&ep=0"
+      }
+    ],
+    "viewer": "https://demo.roborun.dev/"
+  },
+  "schema": "ladder.public-snapshot/v1",
+  "signals": [
+    {
+      "band": [
+        0.1,
+        0.5
+      ],
+      "bins": [
+        132532,
+        0,
+        2,
+        5,
+        4,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        8,
+        0,
+        0,
+        15,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "id": "black",
+      "label": "dark-frame fraction",
+      "low_is_bad": false,
+      "maximum": 1.0,
+      "quantiles": {
+        "p10": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "samples": 132575,
+      "stage": "cheap_cv"
+    },
+    {
+      "band": [
+        0.5,
+        0.9
+      ],
+      "bins": [
+        131326,
+        53,
+        42,
+        55,
+        31,
+        22,
+        15,
+        11,
+        20,
+        12,
+        12,
+        11,
+        26,
+        9,
+        4,
+        102,
+        5,
+        8,
+        7,
+        11,
+        10,
+        5,
+        8,
+        10,
+        211,
+        7,
+        11,
+        8,
+        13,
+        10,
+        11,
+        14,
+        14,
+        12,
+        10,
+        10,
+        12,
+        11,
+        9,
+        17,
+        11,
+        6,
+        17,
+        12,
+        24,
+        29,
+        42,
+        239
+      ],
+      "id": "blur",
+      "label": "blurred-frame fraction",
+      "low_is_bad": false,
+      "maximum": 1.0,
+      "quantiles": {
+        "p10": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "samples": 132575,
+      "stage": "cheap_cv"
+    },
+    {
+      "band": [
+        0.002,
+        0.01
+      ],
+      "bins": [
+        21,
+        12,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        3,
+        4,
+        4,
+        11,
+        14,
+        10,
+        15,
+        30,
+        39,
+        34,
+        41,
+        66,
+        78,
+        86,
+        114,
+        131,
+        161,
+        188,
+        160,
+        195,
+        186,
+        147,
+        215,
+        186,
+        210,
+        178,
+        237,
+        217,
+        237,
+        253,
+        241,
+        223,
+        221,
+        275,
+        297,
+        290,
+        349,
+        337,
+        126858
+      ],
+      "id": "static",
+      "label": "median frame motion",
+      "low_is_bad": true,
+      "maximum": 0.05,
+      "quantiles": {
+        "p10": 0.0679,
+        "p50": 0.1532,
+        "p90": 1.0
+      },
+      "samples": 132575,
+      "stage": "cheap_cv"
+    },
+    {
+      "band": [
+        0.3,
+        0.8
+      ],
+      "bins": [
+        63695,
+        194,
+        231,
+        4324,
+        4273,
+        2121,
+        1191,
+        497,
+        3279,
+        1649,
+        1063,
+        433,
+        3855,
+        500,
+        787,
+        3100,
+        137,
+        1014,
+        724,
+        1168,
+        933,
+        1203,
+        395,
+        109,
+        4895,
+        380,
+        976,
+        749,
+        993,
+        464,
+        607,
+        105,
+        2089,
+        400,
+        334,
+        584,
+        1185,
+        330,
+        663,
+        832,
+        125,
+        272,
+        389,
+        496,
+        464,
+        95,
+        117,
+        18153
+      ],
+      "id": "nohand",
+      "label": "no-hand frame fraction",
+      "low_is_bad": false,
+      "maximum": 1.0,
+      "quantiles": {
+        "p10": 0.0,
+        "p50": 0.08,
+        "p90": 1.0
+      },
+      "samples": 132572,
+      "stage": "geometry"
+    },
+    {
+      "band": [
+        0.35,
+        0.6
+      ],
+      "bins": [
+        129809,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        67,
+        239,
+        235,
+        206,
+        189,
+        184,
+        152,
+        144,
+        194,
+        118,
+        102,
+        119,
+        95,
+        77,
+        63,
+        79,
+        77,
+        66,
+        47,
+        57,
+        79,
+        54,
+        50,
+        18,
+        24,
+        13,
+        11,
+        4,
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "phone",
+      "label": "maximum phone confidence",
+      "low_is_bad": false,
+      "maximum": 1.0,
+      "quantiles": {
+        "p10": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "samples": 132572,
+      "stage": "objects"
+    },
+    {
+      "band": [
+        0.3,
+        0.7
+      ],
+      "bins": [
+        62636,
+        101,
+        120,
+        2445,
+        2293,
+        1107,
+        602,
+        288,
+        1760,
+        891,
+        501,
+        245,
+        2027,
+        210,
+        481,
+        1565,
+        45,
+        699,
+        367,
+        587,
+        574,
+        745,
+        359,
+        48,
+        3291,
+        303,
+        695,
+        495,
+        568,
+        342,
+        577,
+        41,
+        1507,
+        376,
+        169,
+        664,
+        1136,
+        376,
+        691,
+        1137,
+        190,
+        420,
+        740,
+        969,
+        1089,
+        189,
+        169,
+        26470
+      ],
+      "id": "looking_away",
+      "label": "looking-away fraction",
+      "low_is_bad": false,
+      "maximum": 1.0,
+      "quantiles": {
+        "p10": 0.0,
+        "p50": 0.0,
+        "p90": 1.0
+      },
+      "samples": 123300,
+      "stage": "semantic"
+    },
+    {
+      "band": [
+        0.3,
+        0.7
+      ],
+      "bins": [
+        118509,
+        144,
+        131,
+        913,
+        753,
+        304,
+        134,
+        70,
+        458,
+        133,
+        90,
+        41,
+        316,
+        30,
+        45,
+        173,
+        8,
+        97,
+        30,
+        46,
+        72,
+        73,
+        25,
+        8,
+        132,
+        20,
+        53,
+        45,
+        18,
+        19,
+        30,
+        3,
+        36,
+        14,
+        5,
+        24,
+        28,
+        11,
+        6,
+        24,
+        4,
+        4,
+        6,
+        10,
+        20,
+        3,
+        3,
+        179
+      ],
+      "id": "no_workspace",
+      "label": "no-workspace fraction",
+      "low_is_bad": false,
+      "maximum": 1.0,
+      "quantiles": {
+        "p10": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "samples": 123300,
+      "stage": "semantic"
+    }
+  ],
+  "source": {
+    "database_bytes_uncompressed": 284483584,
+    "path": "demo/triage.db.gz",
+    "sha256": "sha256:e53a66819e2a7d08d752f71a4aea076bdaa320a257601a181e98a929bd9dfe3f"
+  },
+  "stages": [
+    {
+      "cascade_exit": {
+        "defer": 0,
+        "fail": 13
+      },
+      "checks": "corrupt \u00b7 empty",
+      "coverage_pct": 100.0,
+      "decisions": {
+        "bad": 13,
+        "good": 132563,
+        "unsure": 0
+      },
+      "engine": "ffprobe",
+      "id": "meta",
+      "label": "Metadata",
+      "level": "L0",
+      "processed": 132576,
+      "reasons": [
+        {
+          "count": 12,
+          "reason": "probe_fail"
+        },
+        {
+          "count": 1,
+          "reason": "empty"
+        }
+      ],
+      "version": "v1"
+    },
+    {
+      "cascade_exit": {
+        "defer": 439,
+        "fail": 373
+      },
+      "checks": "blocked \u00b7 blur \u00b7 frozen",
+      "coverage_pct": 100.0,
+      "decisions": {
+        "bad": 374,
+        "good": 131763,
+        "unsure": 439
+      },
+      "engine": "luma \u00b7 Laplacian \u00b7 motion",
+      "id": "cheap_cv",
+      "label": "Appearance",
+      "level": "L1",
+      "processed": 132576,
+      "reasons": [
+        {
+          "count": 370,
+          "reason": "blur"
+        },
+        {
+          "count": 33,
+          "reason": "static"
+        },
+        {
+          "count": 3,
+          "reason": "black"
+        },
+        {
+          "count": 1,
+          "reason": "empty"
+        }
+      ],
+      "version": "v2"
+    },
+    {
+      "cascade_exit": {
+        "defer": 23780,
+        "fail": 20836
+      },
+      "checks": "hands visible",
+      "coverage_pct": 99.997,
+      "decisions": {
+        "bad": 21002,
+        "good": 87305,
+        "unsure": 24265
+      },
+      "engine": "MediaPipe",
+      "id": "geometry",
+      "label": "Hand geometry",
+      "level": "L2",
+      "processed": 132572,
+      "reasons": [
+        {
+          "count": 30935,
+          "reason": "missing_hands"
+        }
+      ],
+      "version": "v1"
+    },
+    {
+      "cascade_exit": {
+        "defer": 1546,
+        "fail": 564
+      },
+      "checks": "phone in frame",
+      "coverage_pct": 99.997,
+      "decisions": {
+        "bad": 719,
+        "good": 129809,
+        "unsure": 2044
+      },
+      "engine": "YOLO",
+      "id": "objects",
+      "label": "Objects",
+      "level": "L3a",
+      "processed": 132572,
+      "reasons": [
+        {
+          "count": 2763,
+          "reason": "phone"
+        }
+      ],
+      "version": "v1"
+    },
+    {
+      "cascade_exit": {
+        "defer": 7997,
+        "fail": 16448
+      },
+      "checks": "workspace \u00b7 attention",
+      "coverage_pct": 93.003,
+      "decisions": {
+        "bad": 34736,
+        "good": 74417,
+        "unsure": 14147
+      },
+      "engine": "SigLIP",
+      "id": "semantic",
+      "label": "Semantics",
+      "level": "L3b",
+      "processed": 123300,
+      "reasons": [
+        {
+          "count": 44915,
+          "reason": "looking_away"
+        },
+        {
+          "count": 921,
+          "reason": "no_workspace"
+        }
+      ],
+      "version": "cap"
+    },
+    {
+      "cascade_exit": {
+        "defer": 0,
+        "fail": 0
+      },
+      "checks": "full capture rubric",
+      "coverage_pct": 0.032,
+      "decisions": {
+        "BORDERLINE": 0,
+        "FAIL": 0,
+        "PASS": 0,
+        "UNKNOWN": 43
+      },
+      "engine": "VLM",
+      "id": "vlm",
+      "label": "Judge",
+      "level": "L4",
+      "processed": 43,
+      "reasons": [
+        {
+          "count": 13,
+          "reason": "idle"
+        },
+        {
+          "count": 8,
+          "reason": "missing_hands"
+        },
+        {
+          "count": 8,
+          "reason": "looking_away"
+        },
+        {
+          "count": 2,
+          "reason": "phone"
+        }
+      ],
+      "version": "v1"
+    }
+  ],
+  "total": 132576
+}
