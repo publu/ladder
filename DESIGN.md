@@ -1,4 +1,4 @@
-# DESIGN.md - LADDER
+# DESIGN.md - RoboRun Demo / LADDER
 
 ## Context (from discovery)
 
@@ -8,7 +8,7 @@
 - Adjectives: measured, dense, forensic, trustworthy, sharp
 - Visual word translations: measured -> every headline number comes from the snapshot; dense -> three-pane instrument layout; forensic -> selectable rungs expose decisions, signals, and reasons; trustworthy -> persisted and replayed policy states stay separate; sharp -> square edges, hard rules, and restrained status color
 - Aesthetic essence (3 words): forensic cascade instrument
-- Single-minded proposition: LADDER makes the route from a large egocentric corpus to a reviewable residue inspectable.
+- Single-minded proposition: RoboRun Demo makes the route from a large egocentric corpus to a reviewable residue inspectable. Ladder is the cascade implementation, not a second public product.
 - References: admire Grafana's operational density and scientific instrument panels; avoid startup landing-page structure and decorative AI-dashboard chrome
 - Mode: dark | Density: dense
 - Constraints: plain HTML/CSS/JS, static Vercel deployment, aggregate-only public snapshot, no invented row-level joins, WCAG 2.2 AA target
@@ -64,7 +64,7 @@
 - Button hierarchy: selected controls use filled near-black surfaces plus chartreuse indicators; secondary controls are text/edge treatments; states include hover, active, focus-visible, selected, disabled
 - Inputs: the only input is a visibly labeled native signal selector
 - Tables: labels left, values right, tabular numerals, light separators
-- Overlays: none
+- Overlays: none; related public evidence renders inline in the inspector
 - Empty / loading / error: full-surface snapshot loader; explicit snapshot-error state; empty reasons state is textual
 - Focus ring: high-contrast chartreuse box-shadow, never removed without replacement
 
@@ -81,10 +81,10 @@
 
 ## Imagery and illustration
 
-- Mode: real product data visualization plus outbound public video evidence
+- Mode: real product data visualization with inline public video evidence
 - Rules: never substitute illustration for measured output; link evidence by dataset when the public aggregate lacks row identity
 - Avoid: stock imagery, generated scenes, abstract decoration, and any suggestion that related examples are exact row joins
-- Text-over-image contrast: not applicable; video remains in the dedicated viewer
+- Text-over-image contrast: the only video overlay is a small opaque provenance tag; the source MP4 remains directly accessible from the same evidence panel
 
 ## Dark mode
 
@@ -133,4 +133,5 @@
 
 - 2026-08-26: Replaced the marketing page with the measured three-pane cascade explorer.
 - 2026-08-26: Added public video-evidence handoff to the existing demo viewer without implying false source-row identity.
-- 2026-08-26: Added a persistent orange `DEMO` status tag to the product identity on desktop and mobile; the visualization and measured-data hierarchy remain unchanged.
+- 2026-08-26: Consolidated the public identity around `RoboRun / DEMO`; Ladder remains the underlying cascade, and the former separate viewer is now an inline evidence layer.
+- 2026-08-26: Restored visible content preview with an inline public MP4, action timeline, episode stepping, and full-viewer handoff in the inspector; related examples remain explicitly non-row-joined.

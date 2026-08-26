@@ -4,6 +4,12 @@ const state = {
   policy: "active",
   stage: "cheap_cv",
   signal: null,
+  video: {
+    jobs: {},
+    indexes: {},
+    preferred: null,
+    request: 0,
+  },
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -251,6 +257,79 @@ function renderReasons(stage) {
     : '<p class="reason-empty">No reason strings recorded for this active version.</p>';
 }
 
+const videoBase = "https://viewer-seven-steel.vercel.app/";
+
+function safeVideoUrl(path) {
+  const url = new URL(path, videoBase);
+  if (url.origin !== new URL(videoBase).origin || !url.pathname.endsWith(".mp4")) throw new Error("invalid evidence video URL");
+  return url.href;
+}
+
+function renderEvidenceEpisode(set) {
+  const job = state.video.jobs[set.id];
+  if (!job?.episodes?.length) return;
+  const index = Math.max(0, Math.min(state.video.indexes[set.id] || 0, job.episodes.length - 1));
+  state.video.indexes[set.id] = index;
+  const episode = job.episodes[index];
+  const video = $("[data-video-preview]");
+  const source = safeVideoUrl(episode.clip);
+  setText("[data-video-dataset]", `${set.label.toUpperCase()} / ${episode.verdict || "UNSCORED"}`);
+  setText("[data-video-title]", `${episode.id || `EP ${index + 1}`} · ${Number(episode.duration || 0).toFixed(2)}s`);
+  setText("[data-video-status]", "PUBLIC MP4 / PRESS PLAY TO INSPECT");
+  setText("[data-video-position]", `${index + 1} / ${job.episodes.length}`);
+  video.src = source;
+  video.load();
+  const open = $("[data-video-open]");
+  open.href = source;
+
+  const timeline = $("[data-video-timeline]");
+  timeline.innerHTML = "";
+  const duration = Math.max(Number(episode.duration || 0), 0.001);
+  (episode.segments || []).forEach((segment, segmentIndex) => {
+    const marker = document.createElement("i");
+    const start = Math.max(0, Math.min(duration, Number(segment.start || 0)));
+    const end = Math.max(start, Math.min(duration, Number(segment.end || start)));
+    marker.style.setProperty("--start", `${(100 * start) / duration}%`);
+    marker.style.setProperty("--width", `${Math.max(1, (100 * (end - start)) / duration)}%`);
+    marker.dataset.tone = String((segmentIndex % 4) + 1);
+    marker.title = `${String(segment.label || "action")} · ${start.toFixed(2)}–${end.toFixed(2)}s`;
+    timeline.appendChild(marker);
+  });
+}
+
+async function chooseVideoSet(setId) {
+  const evidence = state.data.public_video_sets;
+  const set = evidence?.sets?.find((item) => item.id === setId);
+  if (!set) return;
+  state.video.preferred = set.id;
+  $$('[data-preview-set]').forEach((button) => button.classList.toggle("is-primary", button.dataset.previewSet === set.id));
+  const request = ++state.video.request;
+  try {
+    setText("[data-video-status]", "FETCHING PUBLIC EPISODES");
+    if (!state.video.jobs[set.id]) {
+      const response = await fetch(`${videoBase}jobs/${encodeURIComponent(set.id)}.json`);
+      if (!response.ok) throw new Error(`video evidence returned ${response.status}`);
+      state.video.jobs[set.id] = await response.json();
+    }
+    if (request !== state.video.request) return;
+    renderEvidenceEpisode(set);
+  } catch (error) {
+    if (request !== state.video.request) return;
+    setText("[data-video-status]", `PREVIEW UNAVAILABLE / ${String(error.message).toUpperCase()}`);
+    $("[data-video-preview]").removeAttribute("src");
+  }
+}
+
+function stepVideo(delta) {
+  const setId = state.video.preferred;
+  const job = state.video.jobs[setId];
+  const set = state.data.public_video_sets?.sets?.find((item) => item.id === setId);
+  if (!job?.episodes?.length || !set) return;
+  const current = state.video.indexes[setId] || 0;
+  state.video.indexes[setId] = (current + delta + job.episodes.length) % job.episodes.length;
+  renderEvidenceEpisode(set);
+}
+
 function renderVideoEvidence(stage) {
   const evidence = state.data.public_video_sets;
   if (!evidence) return;
@@ -260,12 +339,14 @@ function renderVideoEvidence(stage) {
   $("[data-video-sets]").innerHTML = sets
     .map(
       (item, index) => `
-        <a class="video-set-link ${index === 0 ? "is-primary" : ""}" href="${item.url}" target="_blank" rel="noopener">
+        <button class="video-set-link ${index === 0 ? "is-primary" : ""}" type="button" data-preview-set="${item.id}">
           <span><small>${index === 0 ? "RELATED TO SELECTED RUNG" : "ALSO AVAILABLE"}</small><strong>${item.label}</strong></span>
-          <b>${number.format(item.episodes)} EP <i>↗</i></b>
-        </a>`,
+          <b>${number.format(item.episodes)} EP <i>▶</i></b>
+        </button>`,
     )
     .join("");
+  $$('[data-preview-set]').forEach((button) => button.addEventListener("click", () => chooseVideoSet(button.dataset.previewSet)));
+  chooseVideoSet(preferred);
 }
 
 function selectStage(id) {
@@ -325,6 +406,10 @@ function wireControls() {
     state.signal = event.target.value || null;
     renderHistogram(state.data.signals.find((signal) => signal.id === state.signal));
   });
+  $("[data-video-prev]").addEventListener("click", () => stepVideo(-1));
+  $("[data-video-next]").addEventListener("click", () => stepVideo(1));
+  $("[data-video-preview]").addEventListener("loadeddata", () => setText("[data-video-status]", "READY / RELATED PUBLIC EXAMPLE"));
+  $("[data-video-preview]").addEventListener("error", () => setText("[data-video-status]", "VIDEO LOAD FAILED / OPEN SOURCE VIDEO"));
 }
 
 async function boot() {

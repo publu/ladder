@@ -3,23 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LADDER DEMO — Egocentric data cascade</title>
+    <title>RoboRun Demo — Egocentric data validation</title>
     <meta
       name="description"
-      content="An interactive view of 132,576 egocentric clips moving through the LADDER quality cascade."
+      content="Inspect 132,576 egocentric clips moving through RoboRun's quality cascade, with inline video evidence."
     />
     <meta name="theme-color" content="#090b0a" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
-    <link rel="canonical" href="https://ladder.roborun.dev/" />
+    <link rel="canonical" href="https://demo.roborun.dev/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="RoboRun" />
-    <meta property="og:url" content="https://ladder.roborun.dev/" />
-    <meta property="og:title" content="LADDER DEMO — Egocentric data cascade" />
+    <meta property="og:url" content="https://demo.roborun.dev/" />
+    <meta property="og:title" content="RoboRun Demo — Egocentric data validation" />
     <meta
       property="og:description"
       content="Explore detector decisions, cascade exits, signal distributions, and persisted outcomes across 132,576 egocentric clips."
     />
-    <meta property="og:image" content="https://ladder.roborun.dev/ladder-og.png" />
+    <meta property="og:image" content="https://demo.roborun.dev/ladder-og.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./ladder.css" />
@@ -34,9 +34,8 @@
         <strong>RoboRun</strong>
       </a>
       <span class="slash">/</span>
-      <span class="product-group" aria-label="Ladder demo">
-        <span class="product">LADDER</span>
-        <span class="demo-tag">DEMO</span>
+      <span class="product-group" aria-label="RoboRun demo">
+        <span class="product">DEMO</span>
       </span>
       <div class="dataset-id">
         <i></i>
@@ -47,9 +46,6 @@
         <span>SNAPSHOT</span>
         <strong data-snapshot>—</strong>
       </div>
-      <a class="evidence-link" href="https://demo.roborun.dev/" target="_blank" rel="noopener">
-        VIDEO EVIDENCE <span>↗</span>
-      </a>
       <a class="source-link" href="https://github.com/publu/ladder" target="_blank" rel="noopener">
         SOURCE <span>↗</span>
       </a>
@@ -185,8 +181,28 @@
         </section>
 
         <section class="video-evidence">
-          <header><span>RELATED VIDEO SETS</span><small>PUBLIC MP4 VIEWER</small></header>
+          <header><span>VIDEO EVIDENCE</span><small>INLINE PUBLIC PREVIEW</small></header>
           <p data-video-relationship>Related examples; not row-level joins.</p>
+          <div class="evidence-player" data-evidence-player>
+            <div class="evidence-frame">
+              <video data-video-preview controls muted loop playsinline preload="auto" aria-label="Related egocentric video example"></video>
+              <span>RELATED / NOT ROW JOINED</span>
+            </div>
+            <div class="evidence-caption">
+              <span data-video-dataset>LOADING DATASET</span>
+              <strong data-video-title>Loading public video…</strong>
+              <small data-video-status>FETCHING EVIDENCE</small>
+            </div>
+            <div class="evidence-timeline" data-video-timeline aria-label="Action timeline"></div>
+            <div class="evidence-controls">
+              <button type="button" data-video-prev aria-label="Previous related episode">← PREV</button>
+              <span data-video-position>— / —</span>
+              <button type="button" data-video-next aria-label="Next related episode">NEXT →</button>
+            </div>
+            <a class="evidence-open" data-video-open href="#" target="_blank" rel="noopener">
+              OPEN SOURCE VIDEO <span>↗</span>
+            </a>
+          </div>
           <div data-video-sets></div>
         </section>
 
