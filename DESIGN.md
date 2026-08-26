@@ -133,3 +133,4 @@
 
 - 2026-08-26: Replaced the marketing page with the measured three-pane cascade explorer.
 - 2026-08-26: Added public video-evidence handoff to the existing demo viewer without implying false source-row identity.
+- 2026-08-26: Added a persistent orange `DEMO` status tag to the product identity on desktop and mobile; the visualization and measured-data hierarchy remain unchanged.
