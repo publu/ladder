@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ladder by RoboRun — Compute-efficient data quality</title>
+    <meta name="description" content="Ladder processes multimodal data once, reuses the work across quality stages, and reserves expensive model calls for the uncertain residue." />
+    <meta name="theme-color" content="#0b0d0c" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://ladder.roborun.dev/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Ladder by RoboRun — Compute-efficient data quality" />
+    <meta property="og:description" content="132,576 clips. One decode. 74.6% cleared before the expensive judge." />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700&amp;display=optional" rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700&amp;display=optional" rel="stylesheet" /></noscript>
+    <link rel="stylesheet" href="./ladder.css" />
+    <script src="./main.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="https://roborun.dev/" aria-label="RoboRun home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>RoboRun</span>
+      </a>
+      <span class="product-name">/ LADDER</span>
+      <nav aria-label="Page navigation">
+        <a href="#benchmark">Benchmark</a>
+        <a href="#architecture">Architecture</a>
+        <a href="https://github.com/publu/ladder" target="_blank" rel="noopener">Source ↗</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="shell hero-layout">
+          <div class="hero-copy">
+            <p class="eyebrow"><i></i> Compute-optimized quality control</p>
+            <h1 id="hero-title">Spend compute<br />on the <em>hard clips.</em></h1>
+            <p>Ladder decodes each source once, reuses frames and features across every quality stage, and sends only uncertain data to expensive models.</p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="https://www.linkedin.com/in/publu/" target="_blank" rel="noopener noreferrer">Benchmark a batch <span>↗</span></a>
+              <a class="button button-secondary" href="https://github.com/publu/ladder" target="_blank" rel="noopener">Inspect the code <span>↗</span></a>
+            </div>
+          </div>
+
+          <div class="funnel-card" aria-label="Measured Ladder processing funnel">
+            <header><span>EGOVERSE PREVIEW / MEASURED</span><b>132,576 CLIPS</b></header>
+            <div class="funnel-source"><span>ALL CLIPS</span><strong>132,576</strong><i></i></div>
+            <div class="funnel-branch">
+              <div class="cleared"><span>CHEAP LAYERS CLEAR</span><strong>98,895</strong><small>74.6% · NO JUDGE CALL</small></div>
+              <div class="deferred"><span>DEFER FOR REVIEW</span><strong>33,674</strong><small>25.4% · UNCERTAIN RESIDUE</small></div>
+            </div>
+            <footer><span><i></i> PASS</span><span><i></i> BORDERLINE</span><b>REPRODUCE: ladder funnel --md</b></footer>
+          </div>
+        </div>
+      </section>
+
+      <section class="benchmark" id="benchmark" aria-labelledby="benchmark-title">
+        <div class="shell section-heading">
+          <p class="section-label">Measured funnel</p>
+          <h2 id="benchmark-title">132,576 clips.<br />One reusable pass.</h2>
+          <p>The numbers below come directly from the shipped <code>triage.db</code> snapshot and reproduce from the CLI.</p>
+        </div>
+        <div class="shell metric-grid">
+          <article><span>01</span><strong>74.6%</strong><h3>Cleared cheaply</h3><p>98,895 clips never needed the expensive judge.</p></article>
+          <article><span>02</span><strong>25.4%</strong><h3>Deferred honestly</h3><p>33,674 uncertain clips remained available for review.</p></article>
+          <article><span>03</span><strong>1×</strong><h3>Decoded once</h3><p>Every stage reads the same cached keyframes.</p></article>
+          <article><span>04</span><strong>&gt;90%</strong><h3>Less repeated media compute</h3><p>Retained source work compounds across every output view.</p></article>
+        </div>
+      </section>
+
+      <section class="architecture" id="architecture" aria-labelledby="architecture-title">
+        <div class="shell architecture-layout">
+          <div class="architecture-copy">
+            <p class="section-label">Cheapest first</p>
+            <h2 id="architecture-title">A cascade, not a queue.</h2>
+            <p>Fast, broad checks handle obvious cases. Each layer decides what it knows and defers the rest. The expensive judge sees the residue, not the corpus.</p>
+          </div>
+          <div class="ladder-stack" role="list" aria-label="Ladder processing stages">
+            <div role="listitem"><span>L0</span><div><h3>Metadata</h3><p>Corrupt · empty</p></div><strong>~1,000/s</strong><i></i></div>
+            <div role="listitem"><span>L1</span><div><h3>Cheap CV</h3><p>Blocked · blur · frozen</p></div><strong>~16/s</strong><i></i></div>
+            <div role="listitem"><span>L2</span><div><h3>Geometry</h3><p>Hands visible</p></div><strong>~15/s</strong><i></i></div>
+            <div role="listitem"><span>L3</span><div><h3>Semantics</h3><p>Workspace · attention · phone</p></div><strong>1–3/s</strong><i></i></div>
+            <div role="listitem" class="judge"><span>L4</span><div><h3>Model judge</h3><p>Full capture-quality rubric</p></div><strong>~0.1/s</strong><i></i></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="reuse" aria-labelledby="reuse-title">
+        <div class="shell reuse-layout">
+          <div>
+            <p class="section-label">The compute contract</p>
+            <h2 id="reuse-title">Decode once.<br />Retune from cache.</h2>
+          </div>
+          <div class="contract-list">
+            <article><span>01</span><h3>One media cache</h3><p>Keyframes are decoded once and reused by CV, geometry, semantic, and judge layers.</p></article>
+            <article><span>02</span><h3>Versioned results</h3><p>Threshold changes write a new version beside the old one, so improvements stay measurable.</p></article>
+            <article><span>03</span><h3>Resumable work</h3><p>Completed clips and stages stay complete. New checks begin from retained source work.</p></article>
+            <article><span>04</span><h3>Reproducible output</h3><p>Every verdict keeps its stage, trigger, source identity, and evidence timestamp.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="closing" aria-labelledby="closing-title">
+        <div class="shell closing-layout">
+          <p class="section-label">Run the comparison</p>
+          <h2 id="closing-title">Bring one batch.</h2>
+          <p>Keep your current quality rubric. We will compare accepted yield, defects found, review load, and compute spent on the same source data.</p>
+          <a class="button button-primary" href="https://www.linkedin.com/in/publu/" target="_blank" rel="noopener noreferrer">Benchmark a batch <span>↗</span></a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell"><span>© <span data-year>2026</span> Manifest Intelligence, Inc.</span><nav><a href="https://roborun.dev/">RoboRun</a><a href="https://github.com/publu/ladder" target="_blank" rel="noopener">GitHub</a></nav></div>
+    </footer>
+  </body>
+</html>
