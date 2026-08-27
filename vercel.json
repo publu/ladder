@@ -5,6 +5,13 @@
   "buildCommand": "python3 build_public_snapshot.py && mkdir -p .vercel-static && cp index.html ladder.css main.js favicon.svg ladder-og.png ladder-snapshot.json .vercel-static/",
   "outputDirectory": ".vercel-static",
   "cleanUrls": true,
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "destination": "https://demo.roborun.dev/",
+      "permanent": false
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
