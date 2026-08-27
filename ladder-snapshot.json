@@ -48,16 +48,16 @@
         "episodes": 100,
         "id": "egodex_fold",
         "label": "Folding tasks",
-        "url": "https://demo.roborun.dev/evidence.html?job=egodex_fold&ep=0"
+        "url": "https://demo.roborun.dev/evidence?job=egodex_fold&ep=0"
       },
       {
         "episodes": 11,
         "id": "egodex",
         "label": "Tabletop manipulation",
-        "url": "https://demo.roborun.dev/evidence.html?job=egodex&ep=0"
+        "url": "https://demo.roborun.dev/evidence?job=egodex&ep=0"
       }
     ],
-    "viewer": "https://demo.roborun.dev/evidence.html"
+    "viewer": "https://demo.roborun.dev/evidence"
   },
   "schema": "ladder.public-snapshot/v1",
   "signals": [

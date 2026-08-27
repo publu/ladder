@@ -183,19 +183,19 @@ def build(connection: sqlite3.Connection) -> dict[str, Any]:
         "signals": signals,
         "public_video_sets": {
             "relationship": "Related public egocentric examples. These demo episodes are not row-level joins to the SQLite snapshot.",
-            "viewer": "https://demo.roborun.dev/evidence.html",
+            "viewer": "https://demo.roborun.dev/evidence",
             "sets": [
                 {
                     "id": "egodex_fold",
                     "label": "Folding tasks",
                     "episodes": 100,
-                    "url": "https://demo.roborun.dev/evidence.html?job=egodex_fold&ep=0",
+                    "url": "https://demo.roborun.dev/evidence?job=egodex_fold&ep=0",
                 },
                 {
                     "id": "egodex",
                     "label": "Tabletop manipulation",
                     "episodes": 11,
-                    "url": "https://demo.roborun.dev/evidence.html?job=egodex&ep=0",
+                    "url": "https://demo.roborun.dev/evidence?job=egodex&ep=0",
                 },
             ],
         },
