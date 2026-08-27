@@ -68,7 +68,7 @@ function renderCascade() {
     return `
       <article class="cascade-stage ${stage.id === state.stage ? "is-active" : ""}" data-cascade-stage="${stage.id}">
         <div class="stage-cap"><span>${stage.level}</span><b>${stage.version}</b></div>
-        <button class="flow-column" type="button" data-stage-select="${stage.id}" aria-label="Inspect ${stage.label}">
+        <button class="flow-column" type="button" data-stage-select="${stage.id}" aria-label="Inspect ${stage.label}, ${number.format(displayed)} clips">
           <i class="flow-fill" style="height:${fill}%"></i>
           <strong class="stage-count">${number.format(displayed)}</strong>
         </button>

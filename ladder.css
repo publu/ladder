@@ -402,7 +402,7 @@ a { color: inherit; text-decoration: none; }
 .route-table [data-route-table] strong { font-family: var(--sans); font-size: 14px; font-weight: 600; }
 .route-table [data-route-table] small { color: var(--muted); font-size: 8px; }
 
-.viz-footer { display: flex; justify-content: space-between; align-items: center; padding: 0 20px; border-top: 1px solid var(--line); color: var(--faint); background: var(--bg); font-size: 6px; }
+.viz-footer { display: flex; justify-content: space-between; align-items: center; padding: 0 20px; border-top: 1px solid var(--line); color: var(--muted); background: var(--bg); font-size: 6px; }
 .viz-footer p { margin: 0; }
 .viz-footer span { color: #747e76; }
 .viz-footer code { color: #8e9790; font: inherit; }
@@ -470,7 +470,7 @@ a { color: inherit; text-decoration: none; }
 .evidence-frame video { display: block; width: 100%; height: 100%; object-fit: contain; background: #020302; }
 .evidence-frame > span { position: absolute; top: 6px; left: 6px; padding: 4px 5px; color: var(--defer); background: rgba(9,11,10,.88); font-size: 5px; letter-spacing: .08em; pointer-events: none; }
 .evidence-caption { padding: 9px 9px 7px; }
-.evidence-caption span, .evidence-caption small { display: block; color: var(--faint); font-size: 6px; letter-spacing: .07em; }
+.evidence-caption span, .evidence-caption small { display: block; color: var(--muted); font-size: 6px; letter-spacing: .07em; }
 .evidence-caption strong { display: block; margin: 4px 0; color: #b7bfb9; font-family: var(--sans); font-size: 11px; font-weight: 500; }
 .evidence-timeline { position: relative; display: block !important; height: 9px; margin: 0 9px 8px; overflow: hidden; background: var(--line); }
 .evidence-timeline i { position: absolute; top: 0; bottom: 0; left: var(--start); width: var(--width); border-right: 1px solid #090b0a; background: var(--good-dim); }
@@ -482,12 +482,12 @@ a { color: inherit; text-decoration: none; }
 .evidence-controls button:last-child { border-left: 1px solid var(--line); }
 .evidence-controls button:first-child { border-right: 1px solid var(--line); }
 .evidence-controls button:hover, .evidence-controls button:focus-visible { color: var(--good); background: var(--panel-2); }
-.evidence-controls span { padding: 0 8px; color: var(--faint); font-size: 6px; text-align: center; }
+.evidence-controls span { padding: 0 8px; color: var(--muted); font-size: 6px; text-align: center; }
 .evidence-open { display: flex; align-items: center; justify-content: space-between; min-height: 32px; padding: 0 9px; border-top: 1px solid var(--line); color: var(--good); font-size: 6px; letter-spacing: .05em; }
 .evidence-open:hover, .evidence-open:focus-visible { color: var(--bg); background: var(--good); }
 .video-set-link { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 10px; border: 1px solid var(--line); color: inherit; background: var(--panel); text-align: left; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
 .video-set-link:hover, .video-set-link:focus-visible { border-color: var(--good-dim); background: var(--panel-2); }
-.video-set-link span small { display: block; color: var(--faint); font-size: 5px; letter-spacing: .08em; }
+.video-set-link span small { display: block; color: var(--muted); font-size: 5px; letter-spacing: .08em; }
 .video-set-link span strong { display: block; margin-top: 4px; color: #aeb7b0; font-size: 8px; font-weight: 400; }
 .video-set-link > b { color: var(--muted); font-size: 7px; font-weight: 400; white-space: nowrap; }
 .video-set-link > b i { color: var(--good); font-style: normal; }
